@@ -186,6 +186,154 @@ a:hover {
   width: 100%;
 }
 
+/* ——— Simplified landing page ——— */
+.page-simple .nav-simple {
+  gap: 12px 20px;
+}
+
+.hero-simple {
+  padding: 64px 0 40px !important;
+  text-align: center;
+}
+
+.hero-simple-inner {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.hero-simple h1 {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.lead-simple {
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 32rem;
+}
+
+.hero-simple .cta-row {
+  justify-content: center;
+}
+
+.trust-simple {
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.section-tight {
+  padding: 40px 0 !important;
+}
+
+.section-head-center {
+  text-align: center;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.simple-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.simple-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 20px;
+}
+
+.simple-card h3 {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+}
+
+.simple-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.simple-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 28px;
+  border-radius: 22px;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  background: var(--card-solid);
+}
+
+.simple-panel h2 {
+  margin: 0 0 6px;
+}
+
+.simple-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.pricing-includes-short li {
+  padding: 6px 0 6px 26px;
+}
+
+.faq-simple {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.footer-simple {
+  padding: 28px 0 40px;
+  margin-top: 8px;
+}
+
+.footer-simple-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.footer-links-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.footer-links-inline a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.92rem;
+}
+
+.footer-links-inline a:hover {
+  color: var(--text);
+}
+
+@media (max-width: 800px) {
+  .simple-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .simple-panel {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .simple-panel .btn {
+    width: 100%;
+  }
+}
+
 /* Hero */
 .hero {
   position: relative;
