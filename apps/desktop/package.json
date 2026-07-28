@@ -1,6 +1,6 @@
 {
   "name": "@riftcoach/desktop",
-  "version": "0.1.0",
+  "version": "0.3.7",
   "private": true,
   "description": "LOLCallout — live AI coach for League of Legends",
   "author": "LOLCallout",
@@ -14,7 +14,7 @@
     "companion": "npx --yes electron electron/main.cjs",
     "pack:win": "powershell -ExecutionPolicy Bypass -File ../../scripts/pack-release.ps1",
     "electron:dev": "electron electron/main.cjs",
-    "dist": "electron-builder --win portable --x64"
+    "dist": "electron-builder --win nsis portable --x64"
   },
   "dependencies": {
     "@riftcoach/shared": "*",
@@ -61,13 +61,19 @@
     "win": {
       "target": [
         {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
           "target": "portable",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         }
       ],
+      "icon": "build/icon.ico",
       "artifactName": "LOLCallout-${version}.${ext}",
+      "publisherName": "LOLCallout",
+      "signingHashAlgorithms": ["sha256"],
+      "rfc3161TimeStampServer": "http://timestamp.digicert.com",
       "signAndEditExecutable": false
     },
     "portable": {
@@ -75,7 +81,23 @@
     },
     "nsis": {
       "oneClick": true,
-      "perMachine": false
-    }
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "LOLCallout",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "artifactName": "LOLCallout-Setup-${version}.exe",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "protocols": [
+      {
+        "name": "LOLCallout",
+        "schemes": ["lolcallout"]
+      }
+    ]
   }
 }

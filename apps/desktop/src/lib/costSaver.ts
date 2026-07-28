@@ -1,4 +1,9 @@
-/** Cost / frequency controls — still allows real coaching */
+/**
+ * Cost / frequency controls.
+ * Coach still only speaks when insight score clears the threshold (no timer filler).
+ * "Urgent only" narrows which cleared insights may voice — default OFF so the guide
+ * can talk whenever the board is worth a line.
+ */
 
 export type CalloutKind =
   | "death"
@@ -16,8 +21,8 @@ export type CalloutKind =
 
 export interface CostSaverPrefs {
   /**
-   * When true: speak high-value moments only.
-   * When false: speak almost every signal (more talkative).
+   * When true: high-impact kinds only (death, HP, numbers, kills, obj…).
+   * When false (default): any insight that cleared the score gate may speak.
    */
   urgentVoiceOnly: boolean;
   maxSpokenPerGame: number;
@@ -27,14 +32,14 @@ export interface CostSaverPrefs {
 }
 
 export const DEFAULT_COST_SAVER: CostSaverPrefs = {
-  // Keep ON but tempo/kills/numbers are in LIVE_SPEAK so you still get live guide
-  urgentVoiceOnly: true,
-  maxSpokenPerGame: 50,
+  // Guide mode: speak every worthy insight (score gate is the filter)
+  urgentVoiceOnly: false,
+  maxSpokenPerGame: 80,
   backgroundAiCallouts: true,
-  maxAiCalloutsPerGame: 50,
+  maxAiCalloutsPerGame: 60,
 };
 
-/** High-value moments when Cost Saver is ON (include level spikes) */
+/** High-impact moments when "impact only" is ON */
 const LIVE_SPEAK: CalloutKind[] = [
   "death",
   "low_hp",

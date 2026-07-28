@@ -77,10 +77,10 @@ export function emptyWatchState(): CoachWatchState {
   };
 }
 
-// Slightly lower so live voice fires more often (was too silent)
-const THRESHOLD_NORMAL = 28;
-const THRESHOLD_QUIET = 45;
-const THRESHOLD_TALKATIVE = 18;
+// Score gate only — no timer filler. Normal is a real coach, not mute.
+const THRESHOLD_NORMAL = 24;
+const THRESHOLD_QUIET = 42;
+const THRESHOLD_TALKATIVE = 16;
 
 export type CoachIntensity = "quiet" | "normal" | "talkative";
 
@@ -305,15 +305,30 @@ export function detectCoachInsights(opts: {
   next.lastKills = you.kills;
   next.lastAssists = you.assists;
 
-  // HP cross into critical
+  // HP cross into critical — and re-warn if still bleeding after a gap (guide, not spam)
   const hpb = hpBucket(a.you.hpPct);
+  const sinceSpeak = now - (prev.lastSpokenAt || 0);
   if (hpb === 2 && prev.lastHpBucket < 2 && !you.isDead) {
     insights.push({
       kind: "low_hp",
-      score: 88,
+      score: 92,
       reason: "HP crossed critical",
       line: lineFor(a, "low_hp", mode),
       signature: `hp:crit`,
+      severity: "urgent",
+    });
+  } else if (
+    hpb === 2 &&
+    prev.lastHpBucket === 2 &&
+    !you.isDead &&
+    sinceSpeak >= 18_000
+  ) {
+    insights.push({
+      kind: "low_hp",
+      score: 58,
+      reason: "still critical HP — guide reset",
+      line: lineFor(a, "low_hp", mode),
+      signature: `hp:sustain:${Math.floor(ctx.gameTime / 20)}`,
       severity: "urgent",
     });
   }
@@ -494,12 +509,18 @@ export function detectCoachInsights(opts: {
   }
 
   // Filter repeats + score adjustments (+ light brain alignment)
-  const sinceSpeak = now - (prev.lastSpokenAt || 0);
+  // (sinceSpeak already computed above for sustained-HP)
   for (const ins of insights) {
     if (prev.lastSignatures.includes(ins.signature)) ins.score -= 35;
     if (avoid.some((t) => similar(t, ins.line))) ins.score -= 40;
-    if (sinceSpeak < 12_000 && ins.kind !== "death" && ins.kind !== "low_hp") {
-      ins.score -= 25;
+    // Soft dampen chatter right after a line — never hard-mute death / low HP
+    if (
+      sinceSpeak < 8_000 &&
+      ins.kind !== "death" &&
+      ins.kind !== "low_hp" &&
+      ins.severity !== "urgent"
+    ) {
+      ins.score -= 18;
     }
     // Nudge insights that match brain focus (additive only)
     if (brainFocus === "numbers" && ins.kind === "numbers") ins.score += 10;

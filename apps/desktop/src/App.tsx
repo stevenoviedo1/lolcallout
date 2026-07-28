@@ -187,7 +187,7 @@ export default function App() {
       <header className="topbar">
         <div className="topbar-left">
           <div className="brand">
-            <img className="brand-icon" src="/icon.jpg" alt="" width={26} height={26} />
+            <img className="brand-icon" src="/logo-circle.png" alt="LOLCallout" width={26} height={26} />
             <span className="brand-name">LOLCallout</span>
           </div>
           <div className={`status-pill ${statusClass}`} title={agentMessage}>
@@ -391,37 +391,44 @@ export default function App() {
 
       <main className="main">
         {showHome && (
-          <div className="playtest-home">
-            <h2>Playtest ready</h2>
+          <div className="playtest-home home-premium">
+            <p className="home-kicker">Command center</p>
+            <h2>Your AI coach is ready</h2>
             <p className="lead-home">
-              Leave this window open, queue League, and the coach goes live automatically.
+              Leave this window open and queue League. The coach arms live — speaks only when
+              the board is worth a line. One voice. Your guide.
             </p>
             <ul className="checklist">
               <li className={agentStatus !== "error" ? "ok" : "bad"}>
                 <div className="checklist-row">
                   <span className="checklist-ico">{agentStatus !== "error" ? "✓" : "!"}</span>
                   <span>
-                    Agent {agentStatus === "error" ? "offline — run npm run dev" : "connected"}
+                    Systems{" "}
+                    {agentStatus === "error" ? "offline — restart the app" : "online"}
                   </span>
                 </div>
               </li>
               <li className={voiceOverEnabled ? "ok" : ""}>
                 <div className="checklist-row">
                   <span className="checklist-ico">{voiceOverEnabled ? "✓" : "○"}</span>
-                  <span>Voice {voiceOverEnabled ? "ON" : "off — click Voice in the top bar"}</span>
+                  <span>
+                    Voice {voiceOverEnabled ? "armed" : "off — enable Voice in the top bar"}
+                  </span>
                 </div>
               </li>
               <li>
                 <div className="checklist-row">
                   <span className="checklist-ico">▶</span>
                   <button type="button" className="chip chip-on" onClick={() => testVoiceOver()}>
-                    Test voice
+                    Test coach voice
                   </button>
                 </div>
                 {voiceError ? (
                   <span className="err">{voiceError}</span>
                 ) : (
-                  <span className="muted small">Click once to unlock Windows audio for callouts</span>
+                  <span className="muted small">
+                    Click once to unlock Windows audio for live callouts
+                  </span>
                 )}
               </li>
               <li className={isRealLive ? "ok" : champSelect?.active ? "ok" : ""}>
@@ -429,7 +436,7 @@ export default function App() {
                   <span className="checklist-ico">{isRealLive ? "✓" : "○"}</span>
                   <span>
                     {isRealLive
-                      ? `In game — ${modeFull} · ${you?.championName || "?"}`
+                      ? `Live — ${modeFull} · ${you?.championName || "?"}`
                       : champSelect?.active
                         ? "Champ select detected"
                         : "Waiting for League…"}
@@ -460,7 +467,7 @@ export default function App() {
                 className="chip"
                 onClick={() => setLayoutPersisted("compact")}
               >
-                Compact mode
+                Compact HUD
               </button>
               {champSelect?.active && (
                 <button
@@ -480,17 +487,17 @@ export default function App() {
           <div className="chat">
             {!isRealLive && messages.length <= 2 && (
               <div className="waiting-banner">
-                <strong>Waiting for a live game</strong>
+                <strong>Standing by</strong>
                 <p>
-                  Queue up — status turns green and the coach arms. Press{" "}
-                  <kbd>Ctrl+Shift+C</kbd> for What now.
+                  Queue League — status goes live and the coach guides automatically. Press{" "}
+                  <kbd>Ctrl+Shift+C</kbd> anytime for What now.
                 </p>
               </div>
             )}
 
             {compact && latestCallout && (
-              <div className="msg callout" style={{ order: -1 }}>
-                <div className="meta">Latest coach</div>
+              <div className="msg callout callout-hero" style={{ order: -1 }}>
+                <div className="meta">Coach</div>
                 {latestCallout.content}
               </div>
             )}
@@ -501,7 +508,7 @@ export default function App() {
                   {m.role === "assistant"
                     ? "Coach"
                     : m.role === "callout"
-                      ? "Live callout"
+                      ? "Live guide"
                       : m.role === "system"
                         ? "System"
                         : "You"}
@@ -577,9 +584,9 @@ export default function App() {
         {showSettings && (
           <div className="settings-panel">
             <h2>Settings</h2>
-            <p className="muted">Playtest voice, callouts, and layout.</p>
+            <p className="muted">Coach voice, guidance density, and layout.</p>
 
-            <h3 className="settings-sub">Playtest</h3>
+            <h3 className="settings-sub">Coach</h3>
             <label className="toggle">
               <input
                 type="checkbox"
@@ -588,7 +595,7 @@ export default function App() {
                   localStorage.setItem("rc_auto_compact", e.target.checked ? "1" : "0");
                 }}
               />
-              Auto-compact when a live game starts
+              Auto-compact HUD when a live game starts
             </label>
             <label className="toggle">
               <input
@@ -596,7 +603,7 @@ export default function App() {
                 checked={calloutsEnabled}
                 onChange={(e) => setCalloutsEnabled(e.target.checked)}
               />
-              Automatic live callouts
+              Automatic live guidance (event-driven)
             </label>
             <label className="toggle">
               <input
@@ -604,9 +611,9 @@ export default function App() {
                 checked={costSaver.urgentVoiceOnly}
                 onChange={(e) => setUrgentVoiceOnly(e.target.checked)}
               />
-              Cost Saver — still event-driven (not a timer)
+              Impact-only voice (fewer lines — death, HP, numbers, kills…)
             </label>
-            <p className="settings-sub">Coach intensity</p>
+            <p className="settings-sub">Guidance density</p>
             <div className="style-row">
               {(
                 [
@@ -625,9 +632,9 @@ export default function App() {
                   }`}
                   onClick={() => {
                     localStorage.setItem("rc_coach_intensity", id);
-                    useAppStore.setState({ toast: `Coach intensity: ${label}` });
+                    useAppStore.setState({ toast: `Guidance: ${label}` });
                     window.setTimeout(() => {
-                      if (useAppStore.getState().toast?.startsWith("Coach intensity")) {
+                      if (useAppStore.getState().toast?.startsWith("Guidance:")) {
                         useAppStore.setState({ toast: null });
                       }
                     }, 2000);
@@ -638,8 +645,8 @@ export default function App() {
               ))}
             </div>
             <p className="muted" style={{ marginTop: 0 }}>
-              Quiet = only high-impact moments. Talkative = lower insight threshold. Never a 30s
-              metronome.
+              Quiet = only the highest scores. Talkative = coach speaks more often when the board
+              changes. Never a timer metronome — only when something is worth saying.
             </p>
             <label className="toggle">
               <input
@@ -647,7 +654,7 @@ export default function App() {
                 checked={voiceOverEnabled}
                 onChange={(e) => setVoiceOverEnabled(e.target.checked)}
               />
-              Voice-over ON
+              Coach voice ON
             </label>
 
             <div className="voice-controls">
@@ -801,7 +808,7 @@ export default function App() {
             </div>
           )}
 
-          <p className="panel-title">Coach brain</p>
+          <p className="panel-title">Neural coach</p>
           {coachBrain ? (
             <div className="stat-card brain-card">
               <div className={`brain-hud tempo-${coachBrain.tempo}`}>
@@ -822,10 +829,10 @@ export default function App() {
                 )}
               </div>
               <p className="brain-value">
-                <strong>Now:</strong> {coachBrain.highestValue}
+                <strong>Guide:</strong> {coachBrain.highestValue}
               </p>
               <p className="brain-lo">
-                <strong>LO:</strong> {coachBrain.learningObjective}
+                <strong>Focus:</strong> {coachBrain.learningObjective}
               </p>
               {coachBrain.winConLine && (
                 <p className="brain-wincon">
@@ -875,7 +882,7 @@ export default function App() {
           ) : (
             <div className="stat-card brain-idle">
               <p className="muted" style={{ margin: 0 }}>
-                Brain arms in a live game — tempo, fight role, LO, next plays.
+                Neural read arms in live games — tempo, fight role, focus, next plays.
               </p>
               {nextQueueLo && (
                 <p className="brain-lo" style={{ marginTop: 10 }}>
@@ -885,7 +892,7 @@ export default function App() {
             </div>
           )}
 
-          <p className="panel-title">Premium analytics</p>
+          <p className="panel-title">Live analytics</p>
           {analytics ? (
             <div className="stat-card analytics-card">
               <div className={`pressure-pill pressure-${analytics.pressure}`}>

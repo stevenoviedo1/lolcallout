@@ -64,7 +64,74 @@ export function registerAuthRoutes(app: Express) {
   const apiPublic = () =>
     process.env.API_PUBLIC_URL || `http://127.0.0.1:${process.env.API_PORT || 8787}`;
 
-  /** Request magic link */
+  /**
+   * Desktop local sign-in: create a session immediately for this email.
+   * Only allowed when the request hits the local API (127.0.0.1 / localhost).
+   * Fixes packaged-app login when email/Resend is not configured.
+   */
+  app.post("/v1/auth/desktop-login", (req, res) => {
+    try {
+      const host = String(req.hostname || req.ip || "").toLowerCase();
+      const remote = String(req.socket?.remoteAddress || "");
+      const local =
+        host === "localhost" ||
+        host === "127.0.0.1" ||
+        host === "::1" ||
+        remote === "127.0.0.1" ||
+        remote === "::1" ||
+        remote === "::ffff:127.0.0.1" ||
+        process.env.AUTH_DEV_RETURN_LINK === "1";
+      if (!local) {
+        return res.status(403).json({ error: "Desktop login only on local app" });
+      }
+
+      const email = String(req.body?.email || "").trim();
+      if (!isValidEmail(email)) {
+        return res.status(400).json({ error: "Valid email required" });
+      }
+
+      const user = upsertUser(email);
+      touchLogin(user.id);
+      const session = createSession(user);
+      res.json({
+        ok: true,
+        token: session.rawToken,
+        user: publicUser(user),
+        expiresAt: new Date(session.expiresAt).toISOString(),
+      });
+    } catch (e) {
+      console.error("[auth] desktop-login", e);
+      res.status(500).json({ error: e instanceof Error ? e.message : "Sign-in failed" });
+    }
+  });
+
+  /** Allowed post-verify redirects (desktop deep link + site) */
+  function resolveRedirect(requested?: string): string {
+    const r = String(requested || "").trim();
+    const allowed = [
+      "lolcallout://auth",
+      "lolcallout://auth/",
+      "https://lolcallout.com",
+      "https://lolcallout.com/",
+      "https://lolcallout.com/#auth",
+      "https://www.lolcallout.com",
+      "https://www.lolcallout.com/",
+      "http://127.0.0.1:5179",
+      "http://127.0.0.1:5179/",
+      "http://localhost:5179",
+      "http://127.0.0.1:5173",
+      "http://localhost:5173",
+    ];
+    if (r && allowed.some((a) => r === a || r.startsWith(a + "?") || r.startsWith(a + "#"))) {
+      return r.startsWith("lolcallout:") ? "lolcallout://auth" : r;
+    }
+    if (r.startsWith("lolcallout://")) return "lolcallout://auth";
+    return appUrl().startsWith("lolcallout:")
+      ? "lolcallout://auth"
+      : `${appUrl().replace(/\/$/, "")}/#auth`;
+  }
+
+  /** Request magic link (browser email → opens desktop via lolcallout://) */
   app.post("/v1/auth/magic-link", async (req, res) => {
     try {
       const email = String(req.body?.email || "").trim();
@@ -76,14 +143,23 @@ export function registerAuthRoutes(app: Express) {
       upsertUser(email);
 
       const { rawToken, expiresAt } = createMagicLink(email);
-      // Link opens API verify which redirects to app with token
-      const magicUrl = `${apiPublic()}/v1/auth/verify?token=${encodeURIComponent(rawToken)}&redirect=${encodeURIComponent(appUrl() + "/#auth")}`;
+      const desktop = Boolean(req.body?.desktop);
+      const redirectTarget = resolveRedirect(
+        desktop ? "lolcallout://auth" : String(req.body?.redirect || "")
+      );
+      const magicUrl = `${apiPublic()}/v1/auth/verify?token=${encodeURIComponent(rawToken)}&redirect=${encodeURIComponent(redirectTarget)}`;
 
-      const mail = await sendMagicLinkEmail({
-        to: email,
-        magicUrl,
-        expiresMinutes: 15,
-      });
+      let mail: { sent: boolean; provider: string } = { sent: false, provider: "none" };
+      try {
+        mail = await sendMagicLinkEmail({
+          to: email,
+          magicUrl,
+          expiresMinutes: 15,
+        });
+      } catch (mailErr) {
+        console.error("[auth] email send error", mailErr);
+        mail = { sent: false, provider: "error" };
+      }
 
       const payload: Record<string, unknown> = {
         ok: true,
@@ -91,14 +167,16 @@ export function registerAuthRoutes(app: Express) {
         expiresAt: new Date(expiresAt).toISOString(),
         emailed: mail.sent,
         provider: mail.provider,
+        desktop,
         message: mail.sent
-          ? "Check your email for a sign-in link."
-          : "Dev mode: magic link printed in API console (set RESEND_API_KEY for real email).",
+          ? "Check your email — click the link to open LOLCallout and finish sign-in."
+          : "Email delivery isn’t configured on the server yet. Opening a secure browser link instead.",
       };
 
-      // Safe for local playtest when no email provider
-      if (!mail.sent || process.env.AUTH_DEV_RETURN_LINK === "1") {
-        payload.devMagicUrl = magicUrl;
+      // If Resend isn’t set, return the one-shot verify URL so the app can open it in a browser
+      // (still completes via lolcallout:// deep link). Never return the raw token alone to clients.
+      if (!mail.sent) {
+        payload.browserAuthUrl = magicUrl;
       }
 
       res.json(payload);
@@ -108,7 +186,7 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  /** Browser click from email → session + redirect to app */
+  /** Browser/desktop click from email → session + redirect to app */
   app.get("/v1/auth/verify", (req, res) => {
     const token = String(req.query.token || "");
     const redirect = String(req.query.redirect || appUrl());
@@ -122,7 +200,6 @@ export function registerAuthRoutes(app: Express) {
           `<html><body style="font-family:system-ui;background:#0b0f1a;color:#e8eefc;padding:40px">
           <h1>Link expired or invalid</h1>
           <p>Request a new magic link from the LOLCallout app.</p>
-          <p><a href="${appUrl()}" style="color:#60a5fa">Back to app</a></p>
           </body></html>`
         );
     }
@@ -131,25 +208,51 @@ export function registerAuthRoutes(app: Express) {
     touchLogin(user.id);
     const session = createSession(user);
 
-    const dest = new URL(redirect.includes("://") ? redirect : appUrl());
-    dest.hash = `auth_token=${session.rawToken}`;
-
     res.setHeader(
       "Set-Cookie",
       `lc_session=${encodeURIComponent(session.rawToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 3600}`
     );
 
-    // Also return JSON if client prefers
+    // Also return JSON if client prefers (desktop in-app complete)
     if (req.headers.accept?.includes("application/json")) {
       return res.json({
         ok: true,
         token: session.rawToken,
         user: publicUser(user),
-        redirect: dest.toString(),
       });
     }
 
-    res.redirect(302, dest.toString());
+    // Custom protocol (Electron desktop) — hand off with an HTML bridge
+    if (redirect.startsWith("lolcallout:")) {
+      const deep = `lolcallout://auth?token=${encodeURIComponent(session.rawToken)}`;
+      return res
+        .status(200)
+        .type("html")
+        .send(`<!doctype html>
+<html><head><meta charset="utf-8"/><title>Opening LOLCallout…</title>
+<meta http-equiv="refresh" content="0;url=${deep}" />
+<style>
+  body{font-family:system-ui,sans-serif;background:#0b0f1a;color:#e8eefc;display:grid;place-items:center;min-height:100vh;margin:0}
+  a{color:#60a5fa;font-weight:700}
+  .card{max-width:420px;padding:28px;border:1px solid rgba(96,165,250,.3);border-radius:16px;background:#121826;text-align:center}
+</style></head>
+<body><div class="card">
+  <h1>Opening LOLCallout…</h1>
+  <p>If the app doesn’t open, click below:</p>
+  <p><a href="${deep}">Open LOLCallout</a></p>
+  <p style="color:#8b9bb8;font-size:13px;margin-top:18px">You can close this tab after the app signs you in.</p>
+</div>
+<script>location.href=${JSON.stringify(deep)};</script>
+</body></html>`);
+    }
+
+    try {
+      const dest = new URL(redirect.includes("://") ? redirect : appUrl());
+      dest.hash = `auth_token=${session.rawToken}`;
+      return res.redirect(302, dest.toString());
+    } catch {
+      return res.redirect(302, `${appUrl()}#auth_token=${session.rawToken}`);
+    }
   });
 
   /** Exchange magic token via POST (desktop can poll/use) */

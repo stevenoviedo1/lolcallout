@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import App from "./App";
 import { LoginScreen } from "./components/LoginScreen";
+import { UpdateBanner } from "./components/UpdateBanner";
 import {
   AuthUser,
   consumeAuthHash,
@@ -11,26 +12,31 @@ import {
 } from "./lib/authApi";
 
 /**
- * Auth gate: magic-link login required (no dev bypass).
+ * Auth gate: browser magic-link (cloud) → lolcallout:// deep link back into the app.
+ * Does not require the local coach service to start for sign-in.
  */
 export function Root() {
   const [booting, setBooting] = useState(true);
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [bootHint, setBootHint] = useState("Starting LOLCallout…");
 
   const refresh = useCallback(async () => {
-    // Clear any old playtest bypass
     try {
       localStorage.removeItem("lc_dev_bypass");
     } catch {
       /* ignore */
     }
     consumeAuthHash();
-    if (getStoredToken()) {
-      const me = await fetchMe();
-      setUser(me);
-    } else {
+    const token = getStoredToken();
+    if (!token) {
       setUser(null);
+      setBooting(false);
+      return;
     }
+    setBootHint("Checking sign-in…");
+    const me = await fetchMe();
+    if (me) setUser(me);
+    else if (!getStoredToken()) setUser(null);
     setBooting(false);
   }, []);
 
@@ -48,40 +54,58 @@ export function Root() {
     setUser(null);
   };
 
+  const handleSignedIn = (u?: AuthUser | null) => {
+    if (u) {
+      setUser(u);
+      setBooting(false);
+      return;
+    }
+    void refresh();
+  };
+
   if (booting) {
     return (
       <div className="login-screen">
-        <div className="login-card" style={{ textAlign: "center" }}>
-          <img src="/icon.jpg" alt="" width={40} height={40} style={{ borderRadius: 10 }} />
-          <p className="muted" style={{ marginTop: 14, marginBottom: 0 }}>
-            Starting LOLCallout…
-          </p>
+        <div className="login-card login-card-premium boot-card">
+          <div className="login-glow" aria-hidden />
+          <img src="/logo-circle.png" alt="LOLCallout" width={44} height={44} />
+          <p className="boot-title">LOLCallout</p>
+          <p className="muted boot-sub">{bootHint}</p>
+          <div className="boot-bar" aria-hidden>
+            <i />
+          </div>
         </div>
       </div>
     );
   }
 
   if (!user) {
-    return <LoginScreen />;
+    return (
+      <>
+        <UpdateBanner />
+        <LoginScreen onSignedIn={handleSignedIn} />
+      </>
+    );
   }
 
   return (
     <>
+      <UpdateBanner />
       <div className="auth-strip">
-        <span>
+        <span className="auth-user">
+          <span className="auth-dot" aria-hidden />
           {user.email}
           {user.plan !== "free" && (
             <span className="plan-pill">
-              {" "}
-              · {user.plan}
+              {user.plan}
               {user.accessUntil
-                ? ` until ${new Date(user.accessUntil).toLocaleDateString()}`
+                ? ` · ${new Date(user.accessUntil).toLocaleDateString()}`
                 : ""}
             </span>
           )}
-          {user.plan === "free" && <span className="plan-pill free"> · free</span>}
+          {user.plan === "free" && <span className="plan-pill free">free</span>}
         </span>
-        <button type="button" className="chip" onClick={() => void handleLogout()}>
+        <button type="button" className="chip chip-ghost" onClick={() => void handleLogout()}>
           Sign out
         </button>
       </div>
@@ -90,5 +114,4 @@ export function Root() {
   );
 }
 
-// re-export setStoredToken for tests
 export { setStoredToken };

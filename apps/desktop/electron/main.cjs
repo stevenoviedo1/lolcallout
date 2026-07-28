@@ -1,20 +1,53 @@
 /**
  * LOLCallout — packaged app entry
- * Spawns local API + Agent using Electron as Node, loads built UI.
+ * Spawns local API + Agent, loads built UI, desktop protocol for magic-link auth.
  */
-const { app, BrowserWindow, shell, dialog } = require("electron");
+const { app, BrowserWindow, shell, dialog, nativeImage, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const http = require("http");
 const { spawn } = require("child_process");
 
 const isDev = !app.isPackaged;
 const children = [];
+const PROTOCOL = "lolcallout";
+
+let mainWindow = null;
+let staticServer = null;
+let bootPorts = { apiPort: "8787", agentPort: "3847", uiPort: 5179 };
+
+/** Single instance so magic-link opens the existing window */
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+}
 
 function resourcePath(...parts) {
   if (isDev) {
     return path.join(__dirname, "..", ...parts);
   }
   return path.join(process.resourcesPath, ...parts);
+}
+
+function appIcon() {
+  // Single brand mark everywhere — same as lolcallout.com / logo-circle.png
+  const candidates = [
+    path.join(__dirname, "..", "build", "icon.ico"),
+    resourcePath("ui", "logo-circle.png"),
+    path.join(__dirname, "..", "public", "logo-circle.png"),
+    path.join(__dirname, "..", "build", "icon.png"),
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        const img = nativeImage.createFromPath(p);
+        if (!img.isEmpty()) return img;
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  return undefined;
 }
 
 function loadEnvFile(filePath) {
@@ -40,23 +73,47 @@ function spawnNodeScript(scriptPath, envExtra, name) {
     ...envExtra,
     ELECTRON_RUN_AS_NODE: "1",
   };
+  // Clear Electron-only flags that can confuse Node ESM boots
+  delete env.ELECTRON_NO_ATTACH_CONSOLE;
+  const logDir = path.join(app.getPath("userData"), "logs");
+  try {
+    fs.mkdirSync(logDir, { recursive: true });
+  } catch {
+    /* ignore */
+  }
+  const logPath = path.join(logDir, `${name}.log`);
   const child = spawn(process.execPath, [scriptPath], {
     env,
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
+    cwd: path.dirname(scriptPath),
   });
-  child.stdout.on("data", (d) => console.log(`[${name}]`, d.toString().trim()));
-  child.stderr.on("data", (d) => console.error(`[${name}]`, d.toString().trim()));
-  child.on("exit", (code) => console.log(`[${name}] exited`, code));
+  const append = (chunk) => {
+    const line = chunk.toString();
+    console.log(`[${name}]`, line.trim());
+    try {
+      fs.appendFileSync(logPath, line);
+    } catch {
+      /* ignore */
+    }
+  };
+  child.stdout.on("data", append);
+  child.stderr.on("data", append);
+  child.on("exit", (code) => {
+    console.log(`[${name}] exited`, code);
+    try {
+      fs.appendFileSync(logPath, `\n[exit ${code}]\n`);
+    } catch {
+      /* ignore */
+    }
+  });
   children.push(child);
   return child;
 }
 
 function startBackend() {
   const rootEnv = loadEnvFile(
-    isDev
-      ? path.join(__dirname, "../../../.env")
-      : resourcePath("playtest.env")
+    isDev ? path.join(__dirname, "../../../.env") : resourcePath("playtest.env")
   );
   const userEnv = loadEnvFile(path.join(app.getPath("userData"), "playtest.env"));
   const envFile = { ...rootEnv, ...userEnv };
@@ -64,8 +121,8 @@ function startBackend() {
   const apiPort = envFile.API_PORT || "8787";
   const agentPort = envFile.AGENT_PORT || "3847";
   const uiPort = 5179;
+  bootPorts = { apiPort, agentPort, uiPort };
 
-  // Prefer packaged server bundles
   const apiEntry = isDev
     ? path.join(__dirname, "../../api/dist/index.js")
     : resourcePath("server", "api", "index.js");
@@ -81,7 +138,7 @@ function startBackend() {
         "\n" +
         agentEntry
     );
-    return { apiPort, agentPort };
+    return bootPorts;
   }
 
   const nodePath = isDev
@@ -95,6 +152,7 @@ function startBackend() {
     /* ignore */
   }
 
+  // Desktop auth: magic links complete inside the app (or via lolcallout:// protocol)
   const common = {
     ...envFile,
     API_PORT: String(apiPort),
@@ -103,8 +161,8 @@ function startBackend() {
     AGENT_HOST: "127.0.0.1",
     AGENT_USE_MOCK: envFile.AGENT_USE_MOCK || "false",
     API_PUBLIC_URL: `http://127.0.0.1:${apiPort}`,
-    AUTH_APP_URL: `http://127.0.0.1:${uiPort}`,
-    AUTH_DEV_RETURN_LINK: envFile.AUTH_DEV_RETURN_LINK || "1",
+    AUTH_APP_URL: `${PROTOCOL}://auth`,
+    AUTH_DEV_RETURN_LINK: "1",
     CORS_ORIGIN: `http://127.0.0.1:${uiPort}`,
     DATA_DIR: dataDir,
     NODE_PATH: nodePath,
@@ -113,14 +171,10 @@ function startBackend() {
   spawnNodeScript(apiEntry, common, "api");
   spawnNodeScript(agentEntry, common, "agent");
 
-  return { apiPort, agentPort, uiPort };
+  return bootPorts;
 }
 
-let mainWindow = null;
-let staticServer = null;
-
 function startUiStaticServer(uiDir, port) {
-  const http = require("http");
   const mime = {
     ".html": "text/html",
     ".js": "application/javascript",
@@ -153,52 +207,192 @@ function startUiStaticServer(uiDir, port) {
   staticServer.listen(port, "127.0.0.1");
 }
 
-function createWindow(apiPort, uiPort) {
+/** Cloud API for auth + coach (login must not depend on local service) */
+const CLOUD_API =
+  process.env.LOL_CLOUD_API_URL ||
+  "https://lolcallout-production.up.railway.app";
+
+function uiLoadUrl(extraHash) {
+  const { agentPort, uiPort } = bootPorts;
+  // Auth + sessions hit cloud; Live Client agent stays local on this PC
+  const qs = new URLSearchParams({
+    api: CLOUD_API,
+    cloudApi: CLOUD_API,
+    agent: `http://127.0.0.1:${agentPort}`,
+    localApi: `http://127.0.0.1:${bootPorts.apiPort}`,
+  });
+  let url = `http://127.0.0.1:${uiPort}/?${qs.toString()}`;
+  if (extraHash) {
+    url += `#${extraHash.replace(/^#/, "")}`;
+  }
+  return url;
+}
+
+function waitForHttp(url, timeoutMs = 20000) {
+  const started = Date.now();
+  return new Promise((resolve) => {
+    const tick = () => {
+      const req = http.get(url, (res) => {
+        res.resume();
+        resolve(true);
+      });
+      req.on("error", () => {
+        if (Date.now() - started > timeoutMs) {
+          resolve(false);
+          return;
+        }
+        setTimeout(tick, 150);
+      });
+      req.setTimeout(800, () => {
+        req.destroy();
+      });
+    };
+    tick();
+  });
+}
+
+function focusMainWindow() {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function applyAuthFromProtocolUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== "string") return;
+  try {
+    // lolcallout://auth#auth_token=...  or  lolcallout://auth?token=...
+    const normalized = rawUrl.replace(`${PROTOCOL}://`, "http://dummy/");
+    const u = new URL(normalized);
+    let token =
+      u.searchParams.get("token") ||
+      u.searchParams.get("auth_token") ||
+      "";
+    if (!token && u.hash) {
+      const m = u.hash.match(/auth_token=([^&]+)/);
+      if (m) token = decodeURIComponent(m[1]);
+    }
+    if (!token) return;
+    focusMainWindow();
+    if (mainWindow) {
+      void mainWindow.loadURL(uiLoadUrl(`auth_token=${encodeURIComponent(token)}`));
+    }
+  } catch (e) {
+    console.error("[auth protocol]", e);
+  }
+}
+
+function loadWindowBounds() {
+  try {
+    const p = path.join(app.getPath("userData"), "window-bounds.json");
+    if (!fs.existsSync(p)) return null;
+    const b = JSON.parse(fs.readFileSync(p, "utf8"));
+    if (
+      b &&
+      Number(b.width) >= 900 &&
+      Number(b.height) >= 600 &&
+      Number.isFinite(b.x) &&
+      Number.isFinite(b.y)
+    ) {
+      return {
+        width: Math.round(b.width),
+        height: Math.round(b.height),
+        x: Math.round(b.x),
+        y: Math.round(b.y),
+      };
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function saveWindowBounds() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    const b = mainWindow.getBounds();
+    const p = path.join(app.getPath("userData"), "window-bounds.json");
+    fs.writeFileSync(p, JSON.stringify(b), "utf8");
+  } catch {
+    /* ignore */
+  }
+}
+
+function createWindow() {
+  const icon = appIcon();
+  const saved = loadWindowBounds();
+  // Default: full coach layout size (not a tiny phone-style panel)
   mainWindow = new BrowserWindow({
-    width: 400,
-    height: 720,
-    minWidth: 340,
-    minHeight: 480,
+    width: saved?.width || 1280,
+    height: saved?.height || 860,
+    minWidth: 980,
+    minHeight: 640,
+    x: saved?.x,
+    y: saved?.y,
     title: "LOLCallout",
     autoHideMenuBar: true,
-    alwaysOnTop: true,
+    alwaysOnTop: false,
     backgroundColor: "#080b12",
+    show: false,
+    icon,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, "preload.cjs"),
-      // Allow coach callouts without requiring a click every time
       autoplayPolicy: "no-user-gesture-required",
     },
   });
 
-  mainWindow.setAlwaysOnTop(true, "screen-saver");
+  // Compact second-monitor mode can re-enable always-on-top from UI later if needed
+  mainWindow.on("close", () => saveWindowBounds());
+  mainWindow.on("resize", () => {
+    if (!mainWindow.isMaximized()) saveWindowBounds();
+  });
+  mainWindow.on("move", () => {
+    if (!mainWindow.isMaximized()) saveWindowBounds();
+  });
 
-  const uiDir = isDev
-    ? path.join(__dirname, "..", "dist")
-    : resourcePath("ui");
+  // Show window immediately (splash/login) — don't wait for backends
+  mainWindow.once("ready-to-show", () => {
+    mainWindow.show();
+    mainWindow.focus();
+  });
 
-  startUiStaticServer(uiDir, uiPort);
+  const uiDir = isDev ? path.join(__dirname, "..", "dist") : resourcePath("ui");
+  startUiStaticServer(uiDir, bootPorts.uiPort);
 
-  // Inject API/agent URLs via query so config can read them
-  const url = `http://127.0.0.1:${uiPort}/?api=http://127.0.0.1:${apiPort}&agent=http://127.0.0.1:3847`;
-  // Wait for servers to boot
-  setTimeout(() => {
-    mainWindow.loadURL(url);
-  }, 1200);
+  // Load UI once — do NOT reload when API comes up (that wiped sign-in mid-flow)
+  mainWindow.loadURL(uiLoadUrl());
+
+  const apiHealth = `http://127.0.0.1:${bootPorts.apiPort}/health`;
+  void waitForHttp(apiHealth, 25000).then((ok) => {
+    if (!ok) console.warn("[boot] API health check timed out — UI still open");
+    else console.log("[boot] API ready");
+  });
 
   mainWindow.webContents.setWindowOpenHandler(({ url: openUrl }) => {
+    // Keep magic-link verify inside app when possible
+    if (openUrl.startsWith("http://127.0.0.1") || openUrl.startsWith("http://localhost")) {
+      void mainWindow.loadURL(openUrl);
+      return { action: "deny" };
+    }
+    if (openUrl.startsWith(`${PROTOCOL}://`)) {
+      applyAuthFromProtocolUrl(openUrl);
+      return { action: "deny" };
+    }
     shell.openExternal(openUrl);
     return { action: "deny" };
   });
+
+  mainWindow.webContents.on("will-navigate", (event, navUrl) => {
+    if (navUrl.startsWith(`${PROTOCOL}://`)) {
+      event.preventDefault();
+      applyAuthFromProtocolUrl(navUrl);
+    }
+  });
 }
 
-app.whenReady().then(() => {
-  const { apiPort, uiPort } = startBackend();
-  createWindow(apiPort, uiPort || 5179);
-});
-
-app.on("window-all-closed", () => {
+function killChildren() {
   for (const c of children) {
     try {
       c.kill();
@@ -213,15 +407,65 @@ app.on("window-all-closed", () => {
       /* ignore */
     }
   }
+}
+
+// Protocol for magic-link email → open this app
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [
+      path.resolve(process.argv[1]),
+    ]);
+  }
+} else {
+  app.setAsDefaultProtocolClient(PROTOCOL);
+}
+
+app.on("second-instance", (_event, argv) => {
+  const proto = argv.find((a) => typeof a === "string" && a.startsWith(`${PROTOCOL}://`));
+  if (proto) applyAuthFromProtocolUrl(proto);
+  focusMainWindow();
+});
+
+// macOS
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  applyAuthFromProtocolUrl(url);
+});
+
+app.whenReady().then(() => {
+  ipcMain.handle("app:getVersion", () => app.getVersion());
+  ipcMain.handle("app:openExternal", (_e, url) => {
+    if (typeof url === "string" && /^https?:\/\//i.test(url)) {
+      void shell.openExternal(url);
+      return true;
+    }
+    return false;
+  });
+  ipcMain.handle("app:setAlwaysOnTop", (_e, on) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setAlwaysOnTop(Boolean(on), Boolean(on) ? "screen-saver" : undefined);
+    }
+    return true;
+  });
+
+  startBackend();
+  createWindow();
+
+  // Windows: protocol URL may be in process.argv on first launch
+  const proto = process.argv.find(
+    (a) => typeof a === "string" && a.startsWith(`${PROTOCOL}://`)
+  );
+  if (proto) {
+    // Wait briefly for window
+    setTimeout(() => applyAuthFromProtocolUrl(proto), 400);
+  }
+});
+
+app.on("window-all-closed", () => {
+  killChildren();
   if (process.platform !== "darwin") app.quit();
 });
 
 app.on("before-quit", () => {
-  for (const c of children) {
-    try {
-      c.kill();
-    } catch {
-      /* ignore */
-    }
-  }
+  killChildren();
 });

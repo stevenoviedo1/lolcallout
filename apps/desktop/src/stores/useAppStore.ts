@@ -245,10 +245,10 @@ function getCoachIntensity(): CoachIntensity {
   if (v === "quiet" || v === "talkative") return v;
   return "normal";
 }
-/** Min gap between non-urgent spoken tips (was 14s — felt broken) */
-const MIN_SPEAK_GAP_MS = 7_500;
-/** Death / critical always cut through */
-const URGENT_KINDS = new Set(["death", "low_hp", "numbers"]);
+/** Min gap between non-urgent spoken tips — coach may speak again when worthy */
+const MIN_SPEAK_GAP_MS = 5_200;
+/** Interrupt prior line for these (still one voice — cuts previous) */
+const URGENT_KINDS = new Set(["death", "low_hp", "numbers", "kill", "objective"]);
 
 function normalizeTip(s: string): string {
   return s
@@ -342,11 +342,11 @@ function speakIfEnabled(
     lastSpokenTips = [text, ...lastSpokenTips].slice(0, 8);
   }
 
-  // Lock only for line duration (~2.8–7s) — was up to 12s and stacked with 14s gap
+  // Lock for line duration only — one voice at a time (interrupt replaces prior)
   const words = text.trim().split(/\s+/).length;
   const estMs = urgent
-    ? Math.min(6_500, Math.max(2_200, words * 280 + 800))
-    : Math.min(7_500, Math.max(2_800, words * 300 + 900));
+    ? Math.min(6_200, Math.max(2_000, words * 260 + 700))
+    : Math.min(6_800, Math.max(2_400, words * 280 + 800));
   coachVoiceLockedUntil = now + estMs;
   lastSpokenAt = now;
 
@@ -354,11 +354,11 @@ function speakIfEnabled(
   setVoicePrefs(base);
   const isLiveCallout = kind === "callout";
   speakText(text, {
-    interrupt: true,
-    rate: Math.min(1.2, base.rate + (isLiveCallout ? 0.06 : 0)),
+    interrupt: true, // always single-slot: stop prior line, never dual TTS
+    rate: Math.min(1.15, base.rate + (isLiveCallout ? 0.04 : 0)),
     pitch: base.pitch,
     volume: clampVoiceVolume(base.volume ?? DEFAULT_VOICE_PREFS.volume),
-    maxChars: isLiveCallout ? 100 : 180,
+    maxChars: isLiveCallout ? 170 : 220,
     prefs: base,
   });
   return true;
@@ -518,6 +518,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   costSaver: { ...DEFAULT_COST_SAVER },
   setUrgentVoiceOnly: (urgentVoiceOnly) => {
     const costSaver = { ...get().costSaver, urgentVoiceOnly };
+    // "1" = impact-only; anything else = full guide (default)
     localStorage.setItem("rc_urgent_voice", urgentVoiceOnly ? "1" : "0");
     set({ costSaver });
   },
@@ -615,8 +616,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       voicePrefs,
       costSaver: {
         ...DEFAULT_COST_SAVER,
-        urgentVoiceOnly: urgent !== "0",
-        // Prefer AI-assisted tempo on local host (XAI key present)
+        // Default OFF (guide mode). Only "1" enables impact-only filter.
+        urgentVoiceOnly: urgent === "1",
         backgroundAiCallouts: localStorage.getItem("rc_ai_callouts") !== "0",
       },
       goals: (() => {
@@ -645,7 +646,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             id: "sys-1",
             role: "system",
             content:
-              "Hands-free ready. Turn on Always listen (Mic stays open) and Voice-over (callouts spoken). Say “coach what now”, “item”, “why did I die”.",
+              "Coach online. Queue League — live callouts arm automatically when something is worth saying. One voice. Say “coach what now”, “item”, or “why did I die”.",
             createdAt: new Date().toISOString(),
           },
         ],
@@ -881,23 +882,29 @@ export const useAppStore = create<AppState>((set, get) => ({
         const signal = signals[0];
         if (signal) {
           const cs = get().costSaver;
-          const willSpeak = shouldSpeakCallout(signal.kind, cs, spokenThisGame);
-          const isUrgent = isUrgentKind(signal.kind) || signal.severity === "urgent";
+          // Insight score already cleared the worthiness gate — always eligible
+          const fromInsight = signal.id.startsWith("insight::");
+          const willSpeak =
+            fromInsight || shouldSpeakCallout(signal.kind, cs, spokenThisGame);
+          const isUrgent =
+            isUrgentKind(signal.kind) ||
+            signal.severity === "urgent" ||
+            (fromInsight && signal.severity === "warn");
           const gapOk = Date.now() - lastSpokenAt >= MIN_SPEAK_GAP_MS || isUrgent;
-          // Cloud TTS "busy" must not mute forever — only soft-block non-urgent
+          // One voice: only soft-block non-urgent while audio plays
           const voiceFree =
             isUrgent || (Date.now() >= coachVoiceLockedUntil && !isVoiceBusy());
 
-          // Permanent reject (cost saver / budget) — mark processed
+          // Permanent reject (budget) — mark processed
           if (!willSpeak) {
             processedSignals.add(signal.id);
             set({
               coachDebug: {
-                text: `(muted cost-saver: ${signal.kind})`,
+                text: `(muted: ${signal.kind})`,
                 source: "none",
                 kind: signal.kind,
                 latencyMs: 0,
-                error: "cost saver or max spoken",
+                error: "impact filter or max spoken",
               },
             });
           } else if (!gapOk || !voiceFree) {

@@ -18,11 +18,11 @@
       property="og:description"
       content="In-game voice coach for League. Windows app. No injection. Founders $50/mo."
     />
-    <meta property="og:image" content="https://lolcallout.com/hero.jpg" />
+    <meta property="og:image" content="https://lolcallout.com/app-live.png" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="LOLCallout" />
     <meta name="twitter:description" content="Live AI League coach for Windows." />
-    <meta name="twitter:image" content="https://lolcallout.com/hero.jpg" />
+    <meta name="twitter:image" content="https://lolcallout.com/app-live.png" />
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="icon" href="/logo-circle.png" type="image/png" sizes="512x512" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -33,7 +33,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css?v=20260728k" />
+    <link rel="stylesheet" href="/styles.css?v=20260728s" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -48,7 +48,7 @@
           "description": "Founders $50/mo (first 100). Standard $100/mo."
         },
         "url": "https://lolcallout.com/",
-        "downloadUrl": "https://github.com/stevenoviedo1/lolcallout/releases/download/v0.3.0/LOLCallout.exe"
+        "downloadUrl": "https://github.com/stevenoviedo1/lolcallout/releases/download/v0.3.6/LOLCallout-Setup-0.3.6.exe"
       }
     </script>
   </head>
@@ -60,6 +60,7 @@
           <span>LOLCallout</span>
         </a>
         <nav class="nav-links nav-simple" id="navLinks">
+          <a href="#product">App</a>
           <a href="#how">How it works</a>
           <a href="#download">Download</a>
           <a href="#founders">Pricing</a>
@@ -78,65 +79,89 @@
             <span class="grad">in your ear.</span>
           </h1>
           <p class="lead lead-simple">
-            Callouts when it matters — numbers, gold, deaths, next play. Sit it on a second
-            monitor. You still play the game.
+            Real-time callouts when the board flips — numbers, gold, deaths, next play. One voice.
+            Second-monitor companion. You still play the game.
           </p>
           <div class="cta-row">
             <a class="btn btn-lg" href="#download">Download for Windows</a>
             <a class="btn btn-ghost btn-lg" href="#founders">Founders $50/mo</a>
           </div>
-          <p class="trust-simple">SR · ARAM · Arena · Not endorsed by Riot</p>
+          <p class="trust-simple">SR · ARAM · Arena · Clean companion · Not endorsed by Riot</p>
+
+          <figure class="hero-shot">
+            <img
+              src="/app-live.png"
+              width="1280"
+              height="800"
+              alt="LOLCallout live coach UI — neural coach HUD, voice callouts, and match analytics on Windows"
+              loading="eager"
+              decoding="async"
+            />
+            <figcaption>Live coach · neural HUD · one voice</figcaption>
+          </figure>
         </div>
       </section>
 
-      <!-- 3 BENEFITS -->
-      <section id="how" class="section section-tight">
+      <!-- PRODUCT PHOTOS -->
+      <section id="product" class="section section-tight product-gallery-section">
         <div class="container">
-          <div class="simple-grid">
-            <article class="simple-card">
-              <h3>1. Download</h3>
-              <p>One Windows app. Same PC as League. No client mods.</p>
-            </article>
-            <article class="simple-card">
-              <h3>2. Queue</h3>
-              <p>Coach arms in-game: voice + brain HUD. Quiet when you’re fine.</p>
-            </article>
-            <article class="simple-card">
-              <h3>3. Improve</h3>
-              <p>Death habits + post-game grade. One focus for next queue.</p>
-            </article>
+          <div class="section-head section-head-center">
+            <h2>Built like a pro tool</h2>
+            <p>Futuristic companion window — second monitor ready. Looks as sharp as it coaches.</p>
+          </div>
+          <div class="product-gallery">
+            <figure class="gallery-card gallery-card-wide">
+              <img
+                src="/app-live.png"
+                width="1280"
+                height="800"
+                alt="LOLCallout full live view with neural coach, callouts, and analytics"
+                loading="lazy"
+                decoding="async"
+              />
+              <figcaption>
+                <strong>Live command center</strong>
+                <span>Neural coach, live guide, analytics — event-driven callouts when it matters</span>
+              </figcaption>
+            </figure>
+            <figure class="gallery-card">
+              <img
+                src="/app-compact.png"
+                width="720"
+                height="900"
+                alt="LOLCallout compact HUD for second monitor"
+                loading="lazy"
+                decoding="async"
+              />
+              <figcaption>
+                <strong>Compact HUD</strong>
+                <span>Second-monitor mode — big coach lines, status strip, one tap Coach me</span>
+              </figcaption>
+            </figure>
+            <figure class="gallery-card">
+              <img
+                src="/app-login.png"
+                width="1100"
+                height="720"
+                alt="LOLCallout secure magic-link sign-in screen"
+                loading="lazy"
+                decoding="async"
+              />
+              <figcaption>
+                <strong>Secure sign-in</strong>
+                <span>Magic link login · no password · clean companion, no injection</span>
+              </figcaption>
+            </figure>
           </div>
         </div>
       </section>
 
-      <!-- DOWNLOAD -->
-      <section id="download" class="section section-tight">
-        <div class="container">
-          <div class="simple-panel">
-            <div>
-              <h2>Download</h2>
-              <p class="muted">Windows 10/11 · ~74 MB · Free to install · Login required</p>
-              <ul class="simple-list">
-                <li>If SmartScreen warns: <strong>More info → Run anyway</strong></li>
-                <li>Sign in with email, then start League</li>
-              </ul>
-            </div>
-            <a
-              class="btn btn-lg"
-              id="downloadBtn"
-              href="https://github.com/stevenoviedo1/lolcallout/releases/download/v0.3.0/LOLCallout.exe"
-              >Download LOLCallout.exe</a
-            >
-          </div>
-        </div>
-      </section>
-
-      <!-- PRICING / FOUNDERS -->
+      <!-- PRICING / CHECKOUT — top of page -->
       <section id="founders" class="section section-tight">
         <div class="container">
           <div class="section-head section-head-center">
-            <h2>Simple pricing</h2>
-            <p>One package. Everything included. No free tier.</p>
+            <h2>One plan. Full coach.</h2>
+            <p>Everything included. No free tier. Founders lock $50/mo early seats.</p>
           </div>
 
           <div class="pricing-single">
@@ -193,6 +218,70 @@
               </p>
             </div>
           </div>
+
+          <!-- How we stay clean — directly under checkout -->
+          <div class="clean-strip" id="clean">
+            <h3>How we stay clean</h3>
+            <p class="muted clean-lead">
+              Competitive integrity isn’t optional. LOLCallout is a coach — not a cheat.
+            </p>
+            <ul class="clean-points">
+              <li>Local Live Client data only — no DLL injection</li>
+              <li>Advice only — you always control the champion</li>
+              <li>No fog hacks, scripts, or boosting</li>
+              <li>Companion window — not an injected overlay</li>
+            </ul>
+            <p class="fine" style="margin: 12px 0 0">
+              <a href="/compliance.html">Full compliance notes</a>
+              ·
+              <a href="/terms.html">Terms</a>
+              ·
+              <a href="/privacy.html">Privacy</a>
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3 BENEFITS -->
+      <section id="how" class="section section-tight">
+        <div class="container">
+          <div class="simple-grid">
+            <article class="simple-card">
+              <h3>1. Download</h3>
+              <p>One Windows app. Same PC as League. No client mods.</p>
+            </article>
+            <article class="simple-card">
+              <h3>2. Queue</h3>
+              <p>Coach arms in-game: voice + brain HUD. Quiet when you’re fine.</p>
+            </article>
+            <article class="simple-card">
+              <h3>3. Improve</h3>
+              <p>Death habits + post-game grade. One focus for next queue.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- DOWNLOAD -->
+      <section id="download" class="section section-tight">
+        <div class="container">
+          <div class="simple-panel">
+            <div>
+              <h2>Download</h2>
+              <p class="muted">Windows 10/11 · Installer · Desktop shortcut · Login in-app</p>
+              <ul class="simple-list">
+                <li>Run <strong>LOLCallout Setup</strong> — puts a logo icon on your Desktop</li>
+                <li>If SmartScreen warns: <strong>More info → Run anyway</strong></li>
+                <li>Sign in inside the app (no browser needed), then queue League</li>
+              </ul>
+            </div>
+            <a
+              class="btn btn-lg"
+              id="downloadBtn"
+              href="https://github.com/stevenoviedo1/lolcallout/releases/download/v0.3.6/LOLCallout-Setup-0.3.6.exe"
+              >Download installer</a
+            >
+          </div>
         </div>
       </section>
 
@@ -229,6 +318,15 @@
               <summary>Is this official Riot software?</summary>
               <p>No. Independent product. Not endorsed by Riot Games.</p>
             </details>
+            <details>
+              <summary>Windows says “Publisher unknown” — is it safe?</summary>
+              <p>
+                That warning appears on any app that isn’t Authenticode code-signed yet. Download
+                only from <strong>lolcallout.com</strong> or our official GitHub release. If
+                SmartScreen appears: <strong>More info → Run anyway</strong>. We’re enabling
+                code signing so Windows will show our publisher name on future builds.
+              </p>
+            </details>
           </div>
         </div>
       </section>
@@ -242,6 +340,7 @@
             <span>LOLCallout</span>
           </a>
           <div class="footer-links-inline">
+            <a href="#product">App</a>
             <a href="#download">Download</a>
             <a href="#founders">Pricing</a>
             <a href="/compliance.html">Compliance</a>

@@ -52,11 +52,16 @@ npm install --omit=dev
 Pop-Location
 
 Copy-Item "$root\apps\desktop\dist\*" "$pack\ui\" -Recurse -Force
+# Single brand mark — same as lolcallout.com
+$brand = "$root\apps\web\logo-circle.png"
+if (-not (Test-Path $brand)) { $brand = "$root\apps\desktop\public\logo-circle.png" }
+if (Test-Path $brand) {
+  Copy-Item $brand "$pack\ui\logo-circle.png" -Force
+  Copy-Item $brand "$root\apps\desktop\public\logo-circle.png" -Force
+  Copy-Item $brand "$root\apps\desktop\build\icon.png" -Force
+}
 if (Test-Path "$root\apps\desktop\public\icon.jpg") {
   Copy-Item "$root\apps\desktop\public\icon.jpg" "$pack\ui\icon.jpg" -Force
-}
-if (Test-Path "$root\apps\web\icon.jpg") {
-  Copy-Item "$root\apps\web\icon.jpg" "$pack\ui\icon.jpg" -Force
 }
 
 $envSrc = Join-Path $root ".env"
@@ -65,7 +70,8 @@ $extra = @(
   "API_PORT=8787",
   "AGENT_PORT=3847",
   "AGENT_USE_MOCK=false",
-  "AUTH_APP_URL=http://127.0.0.1:5179",
+  "AUTH_APP_URL=lolcallout://auth",
+  "AUTH_DEV_RETURN_LINK=1",
   "API_PUBLIC_URL=http://127.0.0.1:8787",
   "CORS_ORIGIN=http://127.0.0.1:5179",
   "NODE_ENV=production"
@@ -129,8 +135,14 @@ if (-not (Test-Path $builderJs)) {
   throw "electron-builder not found. From repo root run: npm install"
 }
 
-# Fixed version (no caret) so builder can download if needed
-& node $builderJs --win portable --x64 --config.electronVersion=33.4.11
+# Skip Authenticode tooling unless CSC_LINK / CSC_NAME is set (needs code-signing cert)
+if (-not $env:CSC_LINK -and -not $env:CSC_NAME -and -not $env:WIN_CSC_LINK) {
+  $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
+  Write-Host "Code signing skipped (no CSC_LINK). Set cert env to sign builds." -ForegroundColor DarkGray
+}
+
+# NSIS installer (desktop shortcut + Start Menu) + portable exe
+& node $builderJs --win nsis portable --x64 --config.electronVersion=33.4.11
 if ($LASTEXITCODE -ne 0) {
   Pop-Location
   throw "electron-builder failed with exit code $LASTEXITCODE"
@@ -142,13 +154,17 @@ Write-Host ""
 Write-Host "Done. Output:" -ForegroundColor Green
 Get-ChildItem $dist -ErrorAction SilentlyContinue | Format-Table Name, @{N='MB';E={[math]::Round($_.Length/1MB,2)}}, LastWriteTime
 
-$exe = Join-Path $dist "LOLCallout.exe"
-if (-not (Test-Path $exe)) {
-  $exe = Get-ChildItem $dist -Filter "LOLCallout*.exe" | Select-Object -First 1 -ExpandProperty FullName
+$setup = Get-ChildItem $dist -Filter "LOLCallout-Setup*.exe" -ErrorAction SilentlyContinue |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 1
+$portable = Join-Path $dist "LOLCallout.exe"
+Write-Host ""
+Write-Host "Installers ready:" -ForegroundColor Green
+if ($setup) {
+  Write-Host "  Desktop installer (recommended): $($setup.FullName)"
+  Write-Host "  → Creates Desktop + Start Menu shortcut with logo"
 }
-if ($exe -and (Test-Path $exe)) {
-  Write-Host ""
-  Write-Host "Installer ready:" -ForegroundColor Green
-  Write-Host "  $exe"
-  Write-Host "Upload to GitHub Releases and update the site download link."
+if (Test-Path $portable) {
+  Write-Host "  Portable: $portable"
 }
+Write-Host "Upload to GitHub Releases and update the site download link."
