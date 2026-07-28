@@ -88,11 +88,24 @@ export async function requestDesktopMagicLink(email: string): Promise<MagicLinkR
     if (!res.ok) {
       return { ok: false, error: data.error || `Sign-in request failed (${res.status})` };
     }
+    // Force deep-link return into the desktop app (works even if cloud API
+    // was built before the desktop=true redirect flag existed).
+    const rawBrowser = data.browserAuthUrl || data.devMagicUrl || "";
+    let browserAuthUrl = rawBrowser;
+    if (rawBrowser) {
+      try {
+        const u = new URL(rawBrowser);
+        u.searchParams.set("redirect", "lolcallout://auth");
+        browserAuthUrl = u.toString();
+      } catch {
+        /* keep raw */
+      }
+    }
     return {
       ok: true,
       message: data.message,
       emailed: data.emailed,
-      browserAuthUrl: data.browserAuthUrl || data.devMagicUrl,
+      browserAuthUrl: browserAuthUrl || undefined,
       provider: data.provider,
     };
   } catch (e) {
