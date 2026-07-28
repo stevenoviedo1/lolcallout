@@ -70,7 +70,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css?v=20260728h" />
+    <link rel="stylesheet" href="/styles.css?v=20260728i" />
 
     <!-- Structured data: Organization + SoftwareApplication + WebSite + FAQ -->
     <script type="application/ld+json">
@@ -323,21 +323,51 @@
                 </div>
               </div>
 
-              <form class="waitlist" id="foundersForm">
-                <input
-                  type="email"
-                  name="email"
-                  required
-                  placeholder="you@email.com"
-                  aria-label="Email for founders seat"
-                  autocomplete="email"
-                />
-                <button class="btn" type="submit" id="foundersBtn">Lock founders — $50/mo</button>
-              </form>
-              <p class="fine" id="foundersNote">
-                *Fair-use limits protect quality. Founders rate starts when you activate. Cancel
-                anytime. Checkout opens when Stripe is live on the API host.
-              </p>
+              <div id="checkoutBanner" class="checkout-banner" hidden></div>
+
+              <div class="checkout-box" id="checkoutBox">
+                <div class="checkout-box-head">
+                  <p class="checkout-box-title">Secure checkout</p>
+                  <p class="checkout-box-sub">
+                    Powered by <strong>Stripe</strong> · card, Apple Pay / Google Pay where available
+                  </p>
+                </div>
+                <div class="checkout-summary">
+                  <div>
+                    <span class="lbl">Plan</span>
+                    <strong>LOLCallout Founders</strong>
+                  </div>
+                  <div>
+                    <span class="lbl">Due today</span>
+                    <strong class="gold">$50.00</strong>
+                  </div>
+                  <div>
+                    <span class="lbl">Then</span>
+                    <strong>$50/mo</strong>
+                    <span class="muted-inline">for 6 months from activate</span>
+                  </div>
+                </div>
+                <form class="checkout-form" id="foundersForm">
+                  <label class="checkout-label" for="foundersEmail">Email for receipt &amp; access</label>
+                  <input
+                    id="foundersEmail"
+                    type="email"
+                    name="email"
+                    required
+                    placeholder="you@email.com"
+                    aria-label="Email for founders checkout"
+                    autocomplete="email"
+                  />
+                  <button class="btn btn-lg btn-checkout" type="submit" id="foundersBtn">
+                    Continue to Stripe — $50/mo
+                  </button>
+                </form>
+                <p class="fine checkout-trust" id="foundersNote">
+                  You’ll finish payment on Stripe’s secure page. Cancel anytime. Fair-use limits
+                  protect quality. Not endorsed by Riot Games.
+                </p>
+                <p class="checkout-error" id="checkoutError" hidden></p>
+              </div>
             </div>
           </div>
         </div>
@@ -980,25 +1010,66 @@
           a.addEventListener("click", () => links.classList.remove("open"))
         );
 
-        // Founders: short-timeout API try, then on-page confirm (no hang if DNS dead)
+        const apiBase =
+          window.LOLCALLOUT_API || "https://lolcallout-production.up.railway.app";
+
+        // Return from Stripe Checkout
+        (function handleCheckoutReturn() {
+          const params = new URLSearchParams(window.location.search);
+          const checkout = params.get("checkout");
+          const sessionId = params.get("session_id");
+          const banner = document.getElementById("checkoutBanner");
+          if (!checkout || !banner) return;
+
+          if (checkout === "founders_success" || checkout === "success") {
+            banner.hidden = false;
+            banner.className = "checkout-banner checkout-banner-ok";
+            banner.innerHTML =
+              "<strong>Payment received.</strong> Welcome to LOLCallout Founders. " +
+              "Check your email for the receipt. Download the Windows app below and sign in with the same email.";
+            // Confirm session with API (grants access) when Stripe redirects back
+            if (sessionId) {
+              fetch(apiBase + "/v1/billing/confirm", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sessionId }),
+              }).catch(function () {});
+            }
+            try {
+              history.replaceState({}, "", window.location.pathname + "#founders");
+            } catch (_) {}
+          } else if (checkout === "cancel") {
+            banner.hidden = false;
+            banner.className = "checkout-banner checkout-banner-warn";
+            banner.innerHTML =
+              "Checkout canceled — no charge. Ready when you are — enter your email below to try again.";
+            try {
+              history.replaceState({}, "", window.location.pathname + "#founders");
+            } catch (_) {}
+          }
+        })();
+
+        // Founders → Stripe Checkout
         document.getElementById("foundersForm")?.addEventListener("submit", async (e) => {
           e.preventDefault();
           const email = (e.target.email && e.target.email.value || "").trim();
           if (!email) return;
           const btn = document.getElementById("foundersBtn");
-          const note = document.getElementById("foundersNote");
+          const errEl = document.getElementById("checkoutError");
+          if (errEl) {
+            errEl.hidden = true;
+            errEl.textContent = "";
+          }
           if (btn) {
             btn.disabled = true;
-            btn.textContent = "Reserving…";
+            btn.textContent = "Opening Stripe…";
           }
 
-          const apiBase =
-            window.LOLCALLOUT_API ||
-            "https://lolcallout-production.up.railway.app";
           let checkoutUrl = null;
+          let errMsg = "";
           try {
             const ctrl = new AbortController();
-            const t = setTimeout(() => ctrl.abort(), 12000);
+            const t = setTimeout(() => ctrl.abort(), 15000);
             const res = await fetch(apiBase + "/v1/billing/checkout", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -1007,36 +1078,36 @@
             });
             clearTimeout(t);
             const data = await res.json().catch(() => ({}));
-            if (res.ok && data.url) checkoutUrl = data.url;
-          } catch (_) {
-            /* API not live / DNS missing — fall through */
+            if (res.ok && data.url) {
+              checkoutUrl = data.url;
+            } else {
+              errMsg = data.error || "Checkout failed (" + res.status + "). Try again in a moment.";
+            }
+          } catch (err) {
+            errMsg =
+              err && err.name === "AbortError"
+                ? "Checkout timed out. Check your connection and try again."
+                : "Could not reach payment server. Try again or email founders@lolcallout.com.";
           }
 
           if (checkoutUrl) {
+            if (btn) btn.textContent = "Redirecting to Stripe…";
             window.location.href = checkoutUrl;
             return;
           }
 
-          // On-page success (don't depend on mailto clients)
-          try {
-            localStorage.setItem(
-              "lolcallout_founders",
-              JSON.stringify({ email, at: new Date().toISOString() })
-            );
-          } catch (_) {}
-
-          if (note) {
-            note.innerHTML =
-              "<strong style='color:#86efac'>You're on the list: " +
-              email.replace(/</g, "") +
-              ".</strong> We'll email checkout when Stripe is live. " +
-              '<a href="mailto:founders@lolcallout.com?subject=' +
-              encodeURIComponent("Founders LOLCallout — " + email) +
-              '">Email us now</a> if you prefer.';
+          if (errEl) {
+            errEl.hidden = false;
+            errEl.innerHTML =
+              "<strong>Couldn’t open Stripe.</strong> " +
+              (errMsg || "Unknown error.") +
+              ' <a href="mailto:founders@lolcallout.com?subject=' +
+              encodeURIComponent("Founders checkout help — " + email) +
+              '">Email support</a>';
           }
           if (btn) {
             btn.disabled = false;
-            btn.textContent = "Reserved ✓";
+            btn.textContent = "Continue to Stripe — $50/mo";
           }
         });
       })();
