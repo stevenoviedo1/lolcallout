@@ -35,6 +35,7 @@ import {
   listEntitled,
   markEntitled,
   stripeEnabled,
+  // handleStripeWebhook loaded dynamically in raw route
 } from "./stripe.js";
 import { authMiddleware, registerAuthRoutes, type AuthedRequest } from "./authRoutes.js";
 import { publicUser, userHasAccess } from "./authStore.js";
@@ -65,6 +66,32 @@ app.use(
     credentials: true,
   })
 );
+
+// Stripe webhooks need raw body for signature verification (before json parser)
+app.post(
+  "/v1/billing/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const { handleStripeWebhook } = await import("./stripe.js");
+      const sig = req.headers["stripe-signature"];
+      const raw = req.body as Buffer;
+      const result = await handleStripeWebhook(
+        raw,
+        typeof sig === "string" ? sig : Array.isArray(sig) ? sig[0] : undefined
+      );
+      if (!result.ok) {
+        console.error("[stripe webhook]", result.error);
+        return res.status(400).json({ error: result.error });
+      }
+      res.json({ received: true, handled: result.handled });
+    } catch (e) {
+      console.error("[stripe webhook]", e);
+      res.status(500).json({ error: e instanceof Error ? e.message : "webhook failed" });
+    }
+  }
+);
+
 app.use(express.json({ limit: "6mb" }));
 app.use(authMiddleware);
 

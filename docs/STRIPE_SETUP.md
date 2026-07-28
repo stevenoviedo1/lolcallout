@@ -69,3 +69,21 @@ FOUNDERS_ACCESS_MONTHS=12
 ```
 
 Founders keep the $50/mo rate for 12 months from activation.
+
+## Webhooks (production)
+
+1. Stripe Dashboard → **Developers** → **Webhooks** → **Add endpoint**
+2. URL: `https://YOUR_API_HOST/v1/billing/webhook`  
+   (e.g. `https://lolcallout-production.up.railway.app/v1/billing/webhook`)
+3. Events to send:
+   - `checkout.session.completed`
+   - `invoice.paid`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
+4. Copy signing secret → Railway env:
+   ```env
+   STRIPE_WEBHOOK_SECRET=whsec_...
+   ```
+5. Redeploy API
+
+Without webhooks, access is still granted via `/v1/billing/confirm` on return from Checkout, but renewals/cancels won’t auto-update.

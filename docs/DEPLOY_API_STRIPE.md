@@ -164,11 +164,20 @@ When you want renewals / cancel handling:
 
 ## Checklist
 
-- [ ] Railway service builds + starts  
-- [ ] `/health` shows `"stripe": true`  
-- [ ] Cloudflare `api` CNAME → Railway  
+- [x] Railway service builds + starts  
+- [x] `/health` shows `"stripe": true`  
+- [ ] Cloudflare `api` CNAME → Railway (SSL)  
 - [ ] `https://api.lolcallout.com/health` works  
-- [ ] Site founders form opens Stripe Checkout  
+- [x] Site founders form opens Stripe Checkout  
+- [ ] Stripe webhook endpoint + `STRIPE_WEBHOOK_SECRET` on Railway  
+
+Webhook URL example:
+
+```text
+https://lolcallout-production.up.railway.app/v1/billing/webhook
+```
+
+Events: `checkout.session.completed`, `invoice.paid`, `customer.subscription.updated`, `customer.subscription.deleted`
 
 ---
 

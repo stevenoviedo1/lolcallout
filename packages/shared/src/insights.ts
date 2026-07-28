@@ -550,3 +550,20 @@ export function pickSpeakableInsight(
   if (!best || best.score < t) return null;
   return best;
 }
+
+/**
+ * Human-readable why we stay quiet (paid trust loop).
+ * Call after detectCoachInsights when pickSpeakableInsight returns null.
+ */
+export function explainCoachSilence(
+  insights: CoachInsight[],
+  intensity: CoachIntensity = "normal"
+): string {
+  const t = thresholdFor(intensity);
+  if (!insights.length) return "quiet · no delta";
+  const best = insights[0];
+  if (best.score < t) {
+    return `quiet · ${best.kind} ${best.score}<${t}`;
+  }
+  return "quiet · held by gap/lock";
+}

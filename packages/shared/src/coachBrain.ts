@@ -130,6 +130,10 @@ export interface CoachBrainState {
   nextMinute: string[];
   /** Counterplay one-liner vs threat or deficit */
   counterplay: string;
+  /** Heuristic map clock (obj windows from minute + mode) */
+  mapClock: string;
+  /** Escalating throw pattern if greed/low-% stack */
+  throwLadder: string | null;
 }
 
 // ─── Compute brain ──────────────────────────────────────────
@@ -165,6 +169,8 @@ export function computeCoachBrain(a: MatchAnalytics): CoachBrainState {
   const nextMinute = nextMinutePlan(a, fight.note);
   const rolePriorities = rolePrioritiesNow(a, roleModel);
   const counterplay = buildCounterplay(a, threat, tempo, manAdv);
+  const mapClock = buildMapClock(a);
+  const throwLadder = buildThrowLadder(a, mistakeRisks, tempo, manAdv);
 
   const read = [
     `TEMPO: ${tempo} (${tempoScore > 0 ? "+" : ""}${tempoScore})`,
@@ -175,7 +181,11 @@ export function computeCoachBrain(a: MatchAnalytics): CoachBrainState {
     `BOARD: ${a.team.alive}v${a.enemy.alive} · killLead ${a.killLead} · winCon ${a.winCon}`,
     threat ? `THREAT: ${threat.name} (${threat.severity})` : "THREAT: none marked",
     `LOAD: ${load} · SPIKE: ${spikeNote}`,
-  ].join(" | ");
+    `MAP CLOCK: ${mapClock}`,
+    throwLadder ? `THROW LADDER: ${throwLadder}` : "",
+  ]
+    .filter(Boolean)
+    .join(" | ");
 
   const tags = [
     `tempo:${tempo}`,
@@ -217,7 +227,49 @@ export function computeCoachBrain(a: MatchAnalytics): CoachBrainState {
     winConLine,
     nextMinute,
     counterplay,
+    mapClock,
+    throwLadder,
   };
+}
+
+function buildMapClock(a: MatchAnalytics): string {
+  if (a.aram) return "ARAM: no base — fight windows on cooldowns and numbers only";
+  if (a.arena) return "Arena: round job — don't save for a map that isn't there";
+  const m = a.minute;
+  const obj = a.objectiveWindows[0];
+  if (obj) return obj;
+  if (m < 4) return "Open: crash + level 2/3 look · jungle path respect";
+  if (m < 8) return "Early: plates + first obj setup when wave is pushed";
+  if (m < 14) return "Mid rotate: herald/drake path — arrive with wave, not late fog";
+  if (m < 20) return "Mid-late: tower → next major obj · track fed threat";
+  if (m < 28) return "Baron threat phase — group for next major, no random sides";
+  return "Close game: elder/baron + one clean siege, zero ego";
+}
+
+function buildThrowLadder(
+  a: MatchAnalytics,
+  risks: MistakeRisk[],
+  tempo: TempoState,
+  manAdv: number
+): string | null {
+  const deaths = Number((a.you.kda || "0/0/0").split("/")[1]) || 0;
+  const greed = risks.find((r) => r.kind === "greed_gold");
+  const force = risks.find((r) => r.kind === "force_behind" || r.kind === "low_pct_fight");
+  const noMan = risks.find((r) => r.kind === "no_man_advantage");
+
+  if (deaths >= 3 && (force || tempo === "reacting")) {
+    return "Rung 3 — tilt ladder: zero hero plays, only high-% farm/hold until spawn";
+  }
+  if (manAdv <= -2 || noMan) {
+    return "Rung 2 — deficit: red light fights, catch waves, wait numbers";
+  }
+  if (greed && a.you.gold >= 1300 && !a.noRecall) {
+    return "Rung 1 — logistics throw risk: crash → base before the next fight";
+  }
+  if (a.pressure === "winning" && deaths >= 2) {
+    return "Lead bleed: stop hunting kills — spend lead on towers/obj";
+  }
+  return null;
 }
 
 function buildCounterplay(
@@ -799,6 +851,8 @@ export function formatBrainForAi(brain: CoachBrainState): string {
     "",
     "### Next ~60s plan",
     ...brain.nextMinute.map((s, i) => `${i + 1}. ${s}`),
+    `MAP CLOCK: ${brain.mapClock}`,
+    brain.throwLadder ? `THROW LADDER: ${brain.throwLadder}` : "",
     "",
     "### Decision checklist (answer before forcing a play)",
     `WHAT: ${brain.checklist.what}`,
@@ -946,6 +1000,69 @@ export function mergeSessionLearningObjective(
     return brain.growth.learningObjective;
   }
   return previousLo.trim();
+}
+
+const BLOCK_LO_KEY = "rc_block_learning_objective";
+const BLOCK_LO_GAMES_KEY = "rc_block_lo_games";
+
+/** Cross-game LO for 3-game deliberate practice blocks (localStorage) */
+export function loadBlockLearningObjective(): string | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    return localStorage.getItem(BLOCK_LO_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function saveBlockLearningObjective(lo: string): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(BLOCK_LO_KEY, lo.trim());
+    const n = Number(localStorage.getItem(BLOCK_LO_GAMES_KEY) || "0");
+    localStorage.setItem(BLOCK_LO_GAMES_KEY, String(n + 1));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** After 3 games, clear block LO so a new focus can form */
+export function maybeRotateBlockLearningObjective(): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const n = Number(localStorage.getItem(BLOCK_LO_GAMES_KEY) || "0");
+    if (n >= 3) {
+      localStorage.removeItem(BLOCK_LO_KEY);
+      localStorage.setItem(BLOCK_LO_GAMES_KEY, "0");
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Prefer block LO → sticky match LO → fresh brain LO */
+export function resolveLearningObjective(
+  brain: CoachBrainState,
+  matchSticky: string | null | undefined
+): string {
+  const block = loadBlockLearningObjective();
+  if (block?.trim()) return block.trim();
+  if (matchSticky?.trim()) return matchSticky.trim();
+  return brain.growth.learningObjective;
+}
+
+/** One-liner for post-game card */
+export function formatPostGameLoCard(
+  lo: string,
+  gradeLetter?: string,
+  topHabit?: string
+): string {
+  const bits = [
+    `Next queue LO: ${lo}`,
+    gradeLetter ? `Last grade: ${gradeLetter}` : "",
+    topHabit ? `Habit to kill: ${topHabit}` : "",
+  ].filter(Boolean);
+  return bits.join(" · ");
 }
 
 /** Top mistake risk as a speakable warning (optional secondary toast) */

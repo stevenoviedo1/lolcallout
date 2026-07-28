@@ -18,6 +18,7 @@ import {
   coachPriority,
   detectCoachInsights,
   pickSpeakableInsight,
+  explainCoachSilence,
   emptyWatchState,
   buildLockInBrief,
   detectModeProfile,
@@ -29,6 +30,11 @@ import {
   formatBrainHud,
   formatBrainForAi,
   mergeSessionLearningObjective,
+  loadBlockLearningObjective,
+  saveBlockLearningObjective,
+  maybeRotateBlockLearningObjective,
+  resolveLearningObjective,
+  formatPostGameLoCard,
   type DetectedSignal,
   type CoachWatchState,
   type CoachIntensity,
@@ -157,6 +163,10 @@ interface AppState {
   };
   /** Live coach brain snapshot for HUD */
   coachBrain: CoachBrainUi | null;
+  /** Why coach is silent (trust loop) */
+  coachSilence: string | null;
+  /** LO card after last game for next queue */
+  nextQueueLo: string | null;
 }
 
 /** Compact brain for React UI (serializable) */
@@ -178,6 +188,8 @@ export interface CoachBrainUi {
   winConLine: string;
   topRisk: string | null;
   checklistWorth: string;
+  mapClock: string;
+  throwLadder: string | null;
 }
 
 let pollTimer: number | undefined;
@@ -201,7 +213,7 @@ let lastLockInKey = "";
 /** Sticky learning objective across the match (3-block style) */
 let sessionLearningObjective: string | null = null;
 
-function brainToUi(brain: CoachBrainState): CoachBrainUi {
+function brainToUi(brain: CoachBrainState, stickyLo?: string | null): CoachBrainUi {
   return {
     hud: formatBrainHud(brain),
     tempo: brain.tempo,
@@ -211,7 +223,7 @@ function brainToUi(brain: CoachBrainState): CoachBrainUi {
     fightRole: brain.fightRole,
     fightRoleNote: brain.fightRoleNote,
     highestValue: brain.highestValue,
-    learningObjective: brain.growth.learningObjective,
+    learningObjective: resolveLearningObjective(brain, stickyLo),
     nextMinute: brain.nextMinute,
     threat: brain.threat?.name ?? null,
     threatSeverity: brain.threat?.severity ?? null,
@@ -222,6 +234,8 @@ function brainToUi(brain: CoachBrainState): CoachBrainUi {
       ? `${brain.mistakeRisks[0].label} → ${brain.mistakeRisks[0].fix}`
       : null,
     checklistWorth: brain.checklist.worthIt,
+    mapClock: brain.mapClock,
+    throwLadder: brain.throwLadder,
   };
 }
 
@@ -523,6 +537,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     error: null,
   },
   coachBrain: null,
+  coachSilence: null,
+  nextQueueLo: (() => {
+    try {
+      return localStorage.getItem("rc_next_queue_lo");
+    } catch {
+      return null;
+    }
+  })(),
   requestChampSelectPlan: async () => {
     const cs = get().champSelect;
     const brief = buildLockInBrief({
@@ -760,21 +782,24 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (aSnap) {
           try {
             liveBrain = computeCoachBrain(aSnap);
+            // Seed match LO from cross-game block LO when available
+            if (!sessionLearningObjective) {
+              sessionLearningObjective =
+                loadBlockLearningObjective() || liveBrain.growth.learningObjective;
+            }
             sessionLearningObjective = mergeSessionLearningObjective(
               sessionLearningObjective,
               liveBrain,
-              { forceRefresh: !sessionLearningObjective }
+              { forceRefresh: false }
             );
-            // Prefer sticky LO in growth display
-            const ui = brainToUi(liveBrain);
-            ui.learningObjective = sessionLearningObjective || ui.learningObjective;
+            const ui = brainToUi(liveBrain, sessionLearningObjective);
             set({ coachBrain: ui });
           } catch {
             /* brain optional */
           }
         }
       } else if (!nowInGame && get().coachBrain) {
-        set({ coachBrain: null });
+        set({ coachBrain: null, coachSilence: null });
       }
 
       // Human-like coach: only speak when insight score clears threshold (no timer filler)
@@ -793,8 +818,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         const intensity = getCoachIntensity();
         const best = pickSpeakableInsight(insights, intensity);
         if (best) {
+          set({ coachSilence: null });
           const brainBlock = liveBrain ? formatBrainForAi(liveBrain) : "";
-          const stickyLo = sessionLearningObjective || liveBrain?.growth.learningObjective || "";
+          const stickyLo =
+            sessionLearningObjective ||
+            (liveBrain ? resolveLearningObjective(liveBrain, null) : "") ||
+            "";
           // Stable id per signature so deferred voice can retry (don't burn Date.now() ids)
           const synthetic: DetectedSignal = {
             id: `insight::${best.kind}::${best.signature}`,
@@ -816,6 +845,8 @@ export const useAppStore = create<AppState>((set, get) => ({
             coachPrompt: [
               `INSIGHT: ${best.reason} (score ${best.score})`,
               stickyLo ? `SESSION LO: ${stickyLo}` : "",
+              liveBrain?.mapClock ? `MAP CLOCK: ${liveBrain.mapClock}` : "",
+              liveBrain?.throwLadder ? `THROW LADDER: ${liveBrain.throwLadder}` : "",
               `MODE: ${modeProf.label}`,
               ...modeProf.rules.map((r) => `RULE: ${r}`),
               brainBlock,
@@ -832,6 +863,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           // Do NOT mark lastSpokenAt / signatures here — only after voice actually fires
         } else {
           status.signals = [];
+          set({ coachSilence: explainCoachSilence(insights, intensity) });
         }
       }
       if (!nowInGame) {
@@ -839,7 +871,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         lastSpokenTips = [];
         lastSpokenAt = 0;
         coachVoiceLockedUntil = 0;
-        sessionLearningObjective = null;
+        // Keep sessionLearningObjective until finishGame saves block LO
       }
 
       if (calloutsEnabled && !calloutBusy && nowInGame && !status.mock) {
@@ -1264,12 +1296,33 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const { summary } = await endSession(sessionId, safeCtx, result);
       const raw = summary.raw || summary.bullets.join(". ");
+      const lo =
+        sessionLearningObjective ||
+        loadBlockLearningObjective() ||
+        get().coachBrain?.learningObjective ||
+        "One structural variable this block.";
+      saveBlockLearningObjective(lo);
+      maybeRotateBlockLearningObjective();
+      const loCard = formatPostGameLoCard(
+        lo,
+        grade?.letter,
+        grade?.habits?.[0] || get().coachBrain?.topRisk || undefined
+      );
+      try {
+        localStorage.setItem("rc_next_queue_lo", loCard);
+      } catch {
+        /* ignore */
+      }
+      sessionLearningObjective = lo;
+
       const gradeLine = grade
-        ? `\n\nGRADE ${grade.letter} (${grade.score}/100)\n${grade.goals.map((g) => `${g.passed ? "✓" : "✗"} ${g.detail}`).join("\n")}\nHabits: ${grade.habits.join(" · ")}`
-        : "";
+        ? `\n\nGRADE ${grade.letter} (${grade.score}/100)\n${grade.goals.map((g) => `${g.passed ? "✓" : "✗"} ${g.detail}`).join("\n")}\nHabits: ${grade.habits.join(" · ")}\n\n${loCard}`
+        : `\n\n${loCard}`;
       set((s) => ({
         activeSummary: summary,
         lastGrade: grade,
+        nextQueueLo: loCard,
+        coachSilence: null,
         messages: [
           ...s.messages,
           {
@@ -1277,7 +1330,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             role: "system",
             content: raw + gradeLine,
             createdAt: new Date().toISOString(),
-            meta: { kind: "summary", grade },
+            meta: { kind: "summary", grade, learningObjective: lo },
           },
         ],
         toast: grade
@@ -1285,7 +1338,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           : "Summary ready — callouts stopped until next match",
       }));
       speakIfEnabled(
-        grade ? `Grade ${grade.letter}. ${grade.habits[0] || raw}` : raw,
+        grade
+          ? `Grade ${grade.letter}. ${grade.habits[0] || ""}. Next game: ${lo}`
+          : `Next game focus: ${lo}`,
         "reply"
       );
       void get().loadHistory();
@@ -1297,7 +1352,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           {
             id: "sys-next",
             role: "system",
-            content: "Ready for next match. Callouts only run during a live game.",
+            content: `Ready for next match.\n${loCard}\nCallouts only run during a live game.`,
             createdAt: new Date().toISOString(),
           },
         ],

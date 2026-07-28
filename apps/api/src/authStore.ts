@@ -138,6 +138,37 @@ export function grantPro(email: string, months = 1): User {
   });
 }
 
+/** Extend access by N months from max(now, current accessUntil) */
+export function extendAccess(email: string, months = 1, plan?: Plan): User {
+  const existing = getUserByEmail(email);
+  const base = existing?.accessUntil
+    ? new Date(Math.max(Date.now(), new Date(existing.accessUntil).getTime()))
+    : new Date();
+  base.setMonth(base.getMonth() + months);
+  const nextPlan =
+    plan ||
+    (existing?.plan === "founders" ? "founders" : "pro");
+  return upsertUser(email, {
+    plan: nextPlan,
+    accessUntil: base.toISOString(),
+    ...(nextPlan === "founders" ? { foundersUntil: base.toISOString() } : {}),
+  });
+}
+
+/** Cancel / expire paid access immediately */
+export function revokeAccess(email: string): User {
+  return upsertUser(email, {
+    plan: "free",
+    accessUntil: new Date(0).toISOString(),
+  });
+}
+
+export function getUserByStripeCustomerId(customerId: string): User | undefined {
+  if (!customerId) return undefined;
+  const users = loadJson<User[]>(usersPath, []);
+  return users.find((u) => u.stripeCustomerId === customerId);
+}
+
 export function userHasAccess(user: User | undefined): boolean {
   if (!user) return false;
   // Dev open mode when no AUTH_REQUIRE_PAID

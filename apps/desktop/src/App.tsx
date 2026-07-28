@@ -75,6 +75,8 @@ export default function App() {
     requestChampSelectPlan,
     coachDebug,
     coachBrain,
+    coachSilence,
+    nextQueueLo,
   } = useAppStore();
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -173,6 +175,12 @@ export default function App() {
           <span className="cd-ms">{coachDebug.latencyMs}ms</span>
           <span className="cd-text">{coachDebug.text}</span>
           {coachDebug.error && <span className="cd-err">{coachDebug.error}</span>}
+        </div>
+      )}
+
+      {live && coachSilence && !coachDebug.text && (
+        <div className="coach-silence" title="Silence is intentional — no high-score insight">
+          {coachSilence}
         </div>
       )}
 
@@ -824,6 +832,14 @@ export default function App() {
                   <strong>Win:</strong> {coachBrain.winConLine}
                 </p>
               )}
+              {coachBrain.mapClock && (
+                <p className="brain-mapclock muted">
+                  <strong>Clock:</strong> {coachBrain.mapClock}
+                </p>
+              )}
+              {coachBrain.throwLadder && (
+                <p className="brain-risk">Throw ladder: {coachBrain.throwLadder}</p>
+              )}
               {coachBrain.nextMinute.length > 0 && (
                 <ol className="brain-next">
                   {coachBrain.nextMinute.map((s, i) => (
@@ -861,6 +877,11 @@ export default function App() {
               <p className="muted" style={{ margin: 0 }}>
                 Brain arms in a live game — tempo, fight role, LO, next plays.
               </p>
+              {nextQueueLo && (
+                <p className="brain-lo" style={{ marginTop: 10 }}>
+                  {nextQueueLo}
+                </p>
+              )}
             </div>
           )}
 

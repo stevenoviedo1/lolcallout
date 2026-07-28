@@ -18,6 +18,7 @@
     "build": "npm run build -w @riftcoach/shared && npm run build -w @riftcoach/prompts && npm run build -w @riftcoach/api && npm run build -w @riftcoach/agent && npm run build -w @riftcoach/desktop",
     "build:api": "npm run build -w @riftcoach/shared && npm run build -w @riftcoach/prompts && npm run build -w @riftcoach/api",
     "start:api": "npm run start -w @riftcoach/api",
+    "smoke:coach": "npm run smoke:coach -w @riftcoach/shared",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {

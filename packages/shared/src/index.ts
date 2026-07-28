@@ -304,6 +304,7 @@ export {
 export {
   detectCoachInsights,
   pickSpeakableInsight,
+  explainCoachSilence,
   emptyWatchState,
   thresholdFor,
   type CoachInsight,
@@ -311,6 +312,13 @@ export {
   type CoachIntensity,
   type InsightKind,
 } from "./insights.js";
+export {
+  runCoachSmoke,
+  mainSmokeCli,
+  SMOKE_CASES,
+  type SmokeCase,
+  type SmokeResult,
+} from "./coachSmoke.js";
 export {
   getChampKit,
   buildLockInBrief,
@@ -338,6 +346,11 @@ export {
   formatBrainHud,
   mergeSessionLearningObjective,
   topMistakeWarning,
+  loadBlockLearningObjective,
+  saveBlockLearningObjective,
+  maybeRotateBlockLearningObjective,
+  resolveLearningObjective,
+  formatPostGameLoCard,
   type CoachBrainState,
   type GrowthState,
   type TempoState,

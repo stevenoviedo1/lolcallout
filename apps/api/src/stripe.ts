@@ -13,9 +13,12 @@
  */
 import Stripe from "stripe";
 import {
+  extendAccess,
   getUserByEmail,
+  getUserByStripeCustomerId,
   grantFounders,
   grantPro,
+  revokeAccess,
   upsertUser,
   userHasAccess,
 } from "./authStore.js";
@@ -135,4 +138,140 @@ export function listEntitled(): string[] {
 
 export function markEntitled(email: string) {
   return grantFounders(email, foundersAccessMonths());
+}
+
+/**
+ * Stripe webhook handler (raw body + signature).
+ * Events: checkout.session.completed, invoice.paid, customer.subscription.deleted
+ */
+export async function handleStripeWebhook(
+  rawBody: Buffer | string,
+  signature: string | undefined
+): Promise<{ ok: true; handled: string } | { ok: false; error: string }> {
+  const stripe = getStripe();
+  if (!stripe) return { ok: false, error: "Stripe not configured" };
+
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  let event: Stripe.Event;
+
+  try {
+    if (secret && signature) {
+      event = stripe.webhooks.constructEvent(rawBody, signature, secret);
+    } else if (process.env.NODE_ENV !== "production") {
+      // Dev only: allow unsigned parse
+      event = JSON.parse(
+        typeof rawBody === "string" ? rawBody : rawBody.toString("utf8")
+      ) as Stripe.Event;
+    } else {
+      return { ok: false, error: "STRIPE_WEBHOOK_SECRET required in production" };
+    }
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Invalid webhook signature",
+    };
+  }
+
+  try {
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        if (session.mode !== "subscription" && session.mode !== "payment") break;
+        if (session.payment_status !== "paid" && session.status !== "complete") break;
+        const email =
+          session.customer_details?.email ||
+          session.customer_email ||
+          session.metadata?.email ||
+          "";
+        if (!email) break;
+        const plan = session.metadata?.plan === "founders" ? "founders" : "pro";
+        const monthsMeta = Number(
+          session.metadata?.founders_rate_months || session.metadata?.months || 0
+        );
+        applyCheckoutEntitlement({
+          email,
+          plan,
+          months: plan === "founders" && monthsMeta > 0 ? monthsMeta : undefined,
+          stripeCustomerId:
+            typeof session.customer === "string" ? session.customer : undefined,
+        });
+        return { ok: true, handled: "checkout.session.completed" };
+      }
+      case "invoice.paid": {
+        const invoice = event.data.object as Stripe.Invoice;
+        const email =
+          invoice.customer_email ||
+          (typeof invoice.customer === "string"
+            ? getUserByStripeCustomerId(invoice.customer)?.email
+            : undefined) ||
+          "";
+        if (!email) break;
+        const cust =
+          typeof invoice.customer === "string" ? invoice.customer : undefined;
+        if (cust) upsertUser(email, { stripeCustomerId: cust });
+        // Renew monthly access
+        const metaPlan = (invoice.subscription_details as { metadata?: { plan?: string } } | null)
+          ?.metadata?.plan;
+        const user = getUserByEmail(email);
+        const plan =
+          metaPlan === "founders" || user?.plan === "founders" ? "founders" : "pro";
+        extendAccess(email, 1, plan);
+        return { ok: true, handled: "invoice.paid" };
+      }
+      case "customer.subscription.deleted": {
+        const sub = event.data.object as Stripe.Subscription;
+        const email =
+          sub.metadata?.email ||
+          (typeof sub.customer === "string"
+            ? getUserByStripeCustomerId(sub.customer)?.email
+            : undefined) ||
+          "";
+        if (!email) break;
+        revokeAccess(email);
+        return { ok: true, handled: "customer.subscription.deleted" };
+      }
+      case "customer.subscription.updated": {
+        const sub = event.data.object as Stripe.Subscription;
+        if (sub.status === "active" || sub.status === "trialing") {
+          const email =
+            sub.metadata?.email ||
+            (typeof sub.customer === "string"
+              ? getUserByStripeCustomerId(sub.customer)?.email
+              : undefined) ||
+            "";
+          if (!email) break;
+          const plan = sub.metadata?.plan === "founders" ? "founders" : "pro";
+          const cust = typeof sub.customer === "string" ? sub.customer : undefined;
+          if (cust) upsertUser(email, { stripeCustomerId: cust });
+          // Keep at least ~35 days of access while active
+          extendAccess(email, 1, plan);
+          return { ok: true, handled: "customer.subscription.updated" };
+        }
+        if (
+          sub.status === "canceled" ||
+          sub.status === "unpaid" ||
+          sub.status === "incomplete_expired"
+        ) {
+          const email =
+            sub.metadata?.email ||
+            (typeof sub.customer === "string"
+              ? getUserByStripeCustomerId(sub.customer)?.email
+              : undefined) ||
+            "";
+          if (email) revokeAccess(email);
+          return { ok: true, handled: "customer.subscription.updated-revoke" };
+        }
+        break;
+      }
+      default:
+        return { ok: true, handled: `ignored:${event.type}` };
+    }
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Webhook handler failed",
+    };
+  }
+
+  return { ok: true, handled: `noop:${event.type}` };
 }
