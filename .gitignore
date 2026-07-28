@@ -28,3 +28,7 @@ apps/web/downloads/*.zip
 .vscode/
 *.swp
 
+
+.railway-env.json
+railway-vars-payload.json
+

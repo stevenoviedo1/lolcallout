@@ -992,7 +992,9 @@
             btn.textContent = "Reserving…";
           }
 
-          const apiBase = window.LOLCALLOUT_API || "https://api.lolcallout.com";
+          const apiBase =
+            window.LOLCALLOUT_API ||
+            "https://lolcallout-production.up.railway.app";
           let checkoutUrl = null;
           try {
             const ctrl = new AbortController();
