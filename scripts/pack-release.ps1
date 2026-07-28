@@ -65,10 +65,10 @@ $extra = @(
   "API_PORT=8787",
   "AGENT_PORT=3847",
   "AGENT_USE_MOCK=false",
-  "AUTH_DEV_RETURN_LINK=1",
   "AUTH_APP_URL=http://127.0.0.1:5179",
   "API_PUBLIC_URL=http://127.0.0.1:8787",
-  "CORS_ORIGIN=http://127.0.0.1:5179"
+  "CORS_ORIGIN=http://127.0.0.1:5179",
+  "NODE_ENV=production"
 )
 if (Test-Path $envSrc) {
   $lines = Get-Content $envSrc | Where-Object {
@@ -142,10 +142,13 @@ Write-Host ""
 Write-Host "Done. Output:" -ForegroundColor Green
 Get-ChildItem $dist -ErrorAction SilentlyContinue | Format-Table Name, @{N='MB';E={[math]::Round($_.Length/1MB,2)}}, LastWriteTime
 
-$exe = Join-Path $dist "LOLCallout-Playtest.exe"
-if (Test-Path $exe) {
+$exe = Join-Path $dist "LOLCallout.exe"
+if (-not (Test-Path $exe)) {
+  $exe = Get-ChildItem $dist -Filter "LOLCallout*.exe" | Select-Object -First 1 -ExpandProperty FullName
+}
+if ($exe -and (Test-Path $exe)) {
   Write-Host ""
-  Write-Host "Playtest exe ready:" -ForegroundColor Green
+  Write-Host "Installer ready:" -ForegroundColor Green
   Write-Host "  $exe"
-  Write-Host "Double-click to run. Replaces the old download only after you copy/reupload this file."
+  Write-Host "Upload to GitHub Releases and update the site download link."
 }

@@ -11,17 +11,19 @@ import {
 } from "./lib/authApi";
 
 /**
- * Auth gate: magic-link login required unless user chooses dev bypass
- * (local playtest without email).
+ * Auth gate: magic-link login required (no dev bypass).
  */
 export function Root() {
   const [booting, setBooting] = useState(true);
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [devBypass, setDevBypass] = useState(
-    () => localStorage.getItem("lc_dev_bypass") === "1"
-  );
 
   const refresh = useCallback(async () => {
+    // Clear any old playtest bypass
+    try {
+      localStorage.removeItem("lc_dev_bypass");
+    } catch {
+      /* ignore */
+    }
     consumeAuthHash();
     if (getStoredToken()) {
       const me = await fetchMe();
@@ -34,7 +36,6 @@ export function Root() {
 
   useEffect(() => {
     void refresh();
-    // Re-check when hash changes (magic link redirect)
     const onHash = () => {
       if (window.location.hash.includes("auth_token=")) void refresh();
     };
@@ -45,8 +46,6 @@ export function Root() {
   const handleLogout = async () => {
     await logout();
     setUser(null);
-    setDevBypass(false);
-    localStorage.removeItem("lc_dev_bypass");
   };
 
   if (booting) {
@@ -62,57 +61,30 @@ export function Root() {
     );
   }
 
-  if (!user && !devBypass) {
-    return (
-      <LoginScreen
-        onDevBypass={() => {
-          localStorage.setItem("lc_dev_bypass", "1");
-          setDevBypass(true);
-        }}
-      />
-    );
+  if (!user) {
+    return <LoginScreen />;
   }
 
   return (
     <>
-      {(user || devBypass) && (
-        <div className="auth-strip">
-          {user ? (
-            <>
-              <span>
-                {user.email}
-                {user.plan !== "free" && (
-                  <span className="plan-pill">
-                    {" "}
-                    · {user.plan}
-                    {user.accessUntil
-                      ? ` until ${new Date(user.accessUntil).toLocaleDateString()}`
-                      : ""}
-                  </span>
-                )}
-                {user.plan === "free" && <span className="plan-pill free"> · free</span>}
-              </span>
-              <button type="button" className="chip" onClick={() => void handleLogout()}>
-                Sign out
-              </button>
-            </>
-          ) : (
-            <>
-              <span className="muted">Dev mode (no login)</span>
-              <button
-                type="button"
-                className="chip"
-                onClick={() => {
-                  localStorage.removeItem("lc_dev_bypass");
-                  setDevBypass(false);
-                }}
-              >
-                Sign in
-              </button>
-            </>
+      <div className="auth-strip">
+        <span>
+          {user.email}
+          {user.plan !== "free" && (
+            <span className="plan-pill">
+              {" "}
+              · {user.plan}
+              {user.accessUntil
+                ? ` until ${new Date(user.accessUntil).toLocaleDateString()}`
+                : ""}
+            </span>
           )}
-        </div>
-      )}
+          {user.plan === "free" && <span className="plan-pill free"> · free</span>}
+        </span>
+        <button type="button" className="chip" onClick={() => void handleLogout()}>
+          Sign out
+        </button>
+      </div>
       <App />
     </>
   );

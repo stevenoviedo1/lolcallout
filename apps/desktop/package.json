@@ -67,11 +67,11 @@
           ]
         }
       ],
-      "artifactName": "LOLCallout-Playtest-${version}.${ext}",
+      "artifactName": "LOLCallout-${version}.${ext}",
       "signAndEditExecutable": false
     },
     "portable": {
-      "artifactName": "LOLCallout-Playtest.exe"
+      "artifactName": "LOLCallout.exe"
     },
     "nsis": {
       "oneClick": true,

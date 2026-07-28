@@ -1464,6 +1464,55 @@ a:hover {
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
+/* Founders seats countdown */
+.seats-countdown {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(245, 197, 66, 0.35);
+  background: linear-gradient(135deg, rgba(245, 197, 66, 0.1), rgba(59, 130, 246, 0.06));
+}
+
+.seats-num {
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.seats-num #seatsRemaining {
+  color: var(--gold);
+}
+
+.seats-of {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin-left: 4px;
+}
+
+.seats-bar {
+  margin-top: 10px;
+  height: 8px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.seats-bar > i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #f5c542, #f59e0b);
+  border-radius: 99px;
+  transition: width 0.4s ease;
+}
+
+.seats-meta {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 /* Stripe checkout box */
 .checkout-box {
   margin-top: 8px;

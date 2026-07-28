@@ -5,6 +5,7 @@ import {
   createSession,
   getSessionUser,
   grantFounders,
+  grantPro,
   isValidEmail,
   publicUser,
   revokeSession,
@@ -179,9 +180,9 @@ export function registerAuthRoutes(app: Express) {
     res.json({ ok: true });
   });
 
-  /** Manual founders grant (dev / admin) */
+  /** Manual founders grant (dev only — never in production) */
   app.post("/v1/auth/dev-grant-founders", (req, res) => {
-    if (process.env.NODE_ENV === "production" && process.env.ALLOW_DEV_ENTITLE !== "1") {
+    if (process.env.NODE_ENV === "production") {
       return res.status(403).json({ error: "disabled in production" });
     }
     const email = String(req.body?.email || "").trim();
@@ -190,7 +191,28 @@ export function registerAuthRoutes(app: Express) {
     res.json({
       ok: true,
       user: publicUser(user),
-      note: "Founders: access for 3 months from now",
+      note: "Founders grant (dev only)",
     });
+  });
+
+  /**
+   * Admin grant — requires ADMIN_SECRET (body or x-admin-secret header).
+   * plan: pro | founders
+   */
+  app.post("/v1/auth/admin-grant", (req, res) => {
+    const secret = String(
+      req.headers["x-admin-secret"] || req.body?.secret || ""
+    ).trim();
+    const expected = process.env.ADMIN_SECRET || "";
+    if (!expected || secret !== expected) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+    const email = String(req.body?.email || "").trim();
+    if (!isValidEmail(email)) return res.status(400).json({ error: "email required" });
+    const plan = String(req.body?.plan || "pro").toLowerCase();
+    const months = Math.max(1, Math.min(36, Number(req.body?.months || 12)));
+    const user =
+      plan === "founders" ? grantFounders(email, months) : grantPro(email, months);
+    res.json({ ok: true, user: publicUser(user) });
   });
 }

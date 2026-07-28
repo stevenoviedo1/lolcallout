@@ -1,21 +1,17 @@
 import { useState } from "react";
 import { requestMagicLink } from "../lib/authApi";
 
-interface Props {
-  onDevBypass?: () => void;
-}
-
-export function LoginScreen({ onDevBypass }: Props) {
+export function LoginScreen() {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [message, setMessage] = useState("");
-  const [devLink, setDevLink] = useState<string | null>(null);
+  const [magicUrl, setMagicUrl] = useState<string | null>(null);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatus("sending");
     setMessage("");
-    setDevLink(null);
+    setMagicUrl(null);
     const res = await requestMagicLink(email);
     if (!res.ok) {
       setStatus("error");
@@ -24,7 +20,10 @@ export function LoginScreen({ onDevBypass }: Props) {
     }
     setStatus("sent");
     setMessage(res.message || "Check your email for a secure sign-in link.");
-    if (res.devMagicUrl) setDevLink(res.devMagicUrl);
+    // Only if email provider didn't send (local API without Resend) — not a bypass
+    if (res.devMagicUrl && res.emailed === false) {
+      setMagicUrl(res.devMagicUrl);
+    }
   };
 
   return (
@@ -64,6 +63,14 @@ export function LoginScreen({ onDevBypass }: Props) {
             <p className="muted">
               Open the email on this device, click the link, and you’ll land back here signed in.
             </p>
+            {magicUrl && (
+              <p className="muted" style={{ marginTop: 12 }}>
+                Email not configured on this machine —{" "}
+                <a href={magicUrl} className="dev-link">
+                  open secure sign-in link
+                </a>
+              </p>
+            )}
             <button type="button" className="chip" onClick={() => setStatus("idle")}>
               Use a different email
             </button>
@@ -71,16 +78,6 @@ export function LoginScreen({ onDevBypass }: Props) {
         )}
 
         {status === "error" && <p className="err">{message}</p>}
-
-        {devLink && (
-          <div className="dev-link-box">
-            <p className="meta">Dev magic link (no email provider configured)</p>
-            <a href={devLink} className="dev-link">
-              Click to sign in
-            </a>
-            <p className="muted small">Also printed in the API terminal.</p>
-          </div>
-        )}
 
         <div className="login-plans">
           <p>
@@ -91,12 +88,6 @@ export function LoginScreen({ onDevBypass }: Props) {
             from activate (12 mo at $50/mo if seats sell out)
           </p>
         </div>
-
-        {onDevBypass && (
-          <button type="button" className="chip" style={{ marginTop: 12 }} onClick={onDevBypass}>
-            Dev: continue without login
-          </button>
-        )}
 
         <p className="legal login-legal">
           Not endorsed by Riot Games. lolcallout.com

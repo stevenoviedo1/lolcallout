@@ -183,6 +183,17 @@ export function userHasAccess(user: User | undefined): boolean {
   return new Date(user.accessUntil).getTime() > Date.now();
 }
 
+/** Count paid founders seats (active founders plan with future access) */
+export function countFoundersSeatsTaken(): number {
+  const users = loadJson<User[]>(usersPath, []);
+  const now = Date.now();
+  return users.filter((u) => {
+    if (u.plan !== "founders") return false;
+    if (!u.accessUntil) return true;
+    return new Date(u.accessUntil).getTime() > now;
+  }).length;
+}
+
 export function publicUser(user: User) {
   return {
     id: user.id,

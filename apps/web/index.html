@@ -70,7 +70,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css?v=20260728i" />
+    <link rel="stylesheet" href="/styles.css?v=20260728j" />
 
     <!-- Structured data: Organization + SoftwareApplication + WebSite + FAQ -->
     <script type="application/ld+json">
@@ -288,6 +288,17 @@
                 Full package at founders rate for <strong>6 months</strong> from the day you
                 activate. Not a trial. Not a free tier. Same coach as $100/mo.
               </p>
+
+              <div class="seats-countdown" id="seatsCountdown" aria-live="polite">
+                <div class="seats-num">
+                  <span id="seatsRemaining">—</span>
+                  <span class="seats-of">/ 100 left</span>
+                </div>
+                <div class="seats-bar" aria-hidden="true">
+                  <i id="seatsBarFill" style="width: 0%"></i>
+                </div>
+                <p class="seats-meta" id="seatsMeta">Founders seats · updates every 24 hours</p>
+              </div>
 
               <div class="founders-deal">
                 <p class="founders-deal-title">Sell-out bonus</p>
@@ -1012,6 +1023,45 @@
 
         const apiBase =
           window.LOLCALLOUT_API || "https://lolcallout-production.up.railway.app";
+
+        // Founders seats remaining (API caches ~24h)
+        (async function loadFoundersSeats() {
+          const remEl = document.getElementById("seatsRemaining");
+          const bar = document.getElementById("seatsBarFill");
+          const meta = document.getElementById("seatsMeta");
+          try {
+            const ctrl = new AbortController();
+            const t = setTimeout(() => ctrl.abort(), 8000);
+            const res = await fetch(apiBase + "/v1/billing/founders-seats", {
+              signal: ctrl.signal,
+            });
+            clearTimeout(t);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "seats");
+            const remaining = Number(data.remaining ?? 100);
+            const seats = Number(data.seats || 100);
+            const taken = Number(data.taken || 0);
+            if (remEl) remEl.textContent = String(remaining);
+            if (bar) {
+              const pct = seats > 0 ? Math.min(100, Math.round((taken / seats) * 100)) : 0;
+              bar.style.width = pct + "%";
+            }
+            if (meta) {
+              const next = data.nextRefreshAt
+                ? new Date(data.nextRefreshAt).toLocaleString()
+                : "within 24 hours";
+              meta.textContent =
+                taken +
+                " claimed · " +
+                remaining +
+                " left · count refreshes " +
+                (data.nextRefreshAt ? "by " + next : "every 24 hours");
+            }
+          } catch (_) {
+            if (remEl) remEl.textContent = "100";
+            if (meta) meta.textContent = "Founders seats · live count temporarily unavailable";
+          }
+        })();
 
         // Return from Stripe Checkout
         (function handleCheckoutReturn() {

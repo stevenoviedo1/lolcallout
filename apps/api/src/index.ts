@@ -38,7 +38,7 @@ import {
   // handleStripeWebhook loaded dynamically in raw route
 } from "./stripe.js";
 import { authMiddleware, registerAuthRoutes, type AuthedRequest } from "./authRoutes.js";
-import { publicUser, userHasAccess } from "./authStore.js";
+import { countFoundersSeatsTaken, publicUser, userHasAccess } from "./authStore.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 dotenv.config({ path: path.join(root, ".env") });
@@ -161,6 +161,43 @@ app.get("/v1/billing/status", (req: AuthedRequest, res) => {
       seats: 100,
     },
   });
+});
+
+/** Public founders seat counter — cached ~24h (refreshes at most once/day per process) */
+let foundersCache: {
+  at: number;
+  taken: number;
+  remaining: number;
+  seats: number;
+} | null = null;
+const FOUNDERS_CACHE_MS = 24 * 60 * 60 * 1000;
+
+function getFoundersSeatSnapshot() {
+  const seats = Number(process.env.FOUNDERS_SEATS || 100);
+  const now = Date.now();
+  if (!foundersCache || now - foundersCache.at > FOUNDERS_CACHE_MS) {
+    const taken = Math.min(seats, Math.max(0, countFoundersSeatsTaken()));
+    foundersCache = {
+      at: now,
+      taken,
+      remaining: Math.max(0, seats - taken),
+      seats,
+    };
+  }
+  return {
+    seats: foundersCache.seats,
+    taken: foundersCache.taken,
+    remaining: foundersCache.remaining,
+    updatedAt: new Date(foundersCache.at).toISOString(),
+    nextRefreshAt: new Date(foundersCache.at + FOUNDERS_CACHE_MS).toISOString(),
+    priceUsd: 50,
+    interval: "month" as const,
+    rateMonths: Number(process.env.FOUNDERS_ACCESS_MONTHS || 6),
+  };
+}
+
+app.get("/v1/billing/founders-seats", (_req, res) => {
+  res.json(getFoundersSeatSnapshot());
 });
 
 /** Dev-only: grant Founders */
