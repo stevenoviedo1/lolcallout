@@ -1,0 +1,81 @@
+{
+  "name": "@riftcoach/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LOLCallout — live AI coach for League of Legends",
+  "author": "LOLCallout",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --noEmit",
+    "companion": "npx --yes electron electron/main.cjs",
+    "pack:win": "powershell -ExecutionPolicy Bypass -File ../../scripts/pack-release.ps1",
+    "electron:dev": "electron electron/main.cjs",
+    "dist": "electron-builder --win portable --x64"
+  },
+  "dependencies": {
+    "@riftcoach/shared": "*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.2"
+  },
+  "build": {
+    "appId": "com.lolcallout.app",
+    "productName": "LOLCallout",
+    "copyright": "Copyright © LOLCallout",
+    "electronVersion": "33.4.11",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "release-pack/server",
+        "to": "server"
+      },
+      {
+        "from": "release-pack/ui",
+        "to": "ui"
+      },
+      {
+        "from": "release-pack/playtest.env",
+        "to": "playtest.env"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "LOLCallout-Playtest-${version}.${ext}",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "LOLCallout-Playtest.exe"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    }
+  }
+}

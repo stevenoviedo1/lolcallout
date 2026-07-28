@@ -1,0 +1,11 @@
+# LOLCallout — https://lolcallout.com
+User-agent: *
+Allow: /
+
+# Legal / product pages
+Allow: /terms.html
+Allow: /privacy.html
+Allow: /compliance.html
+
+Sitemap: https://lolcallout.com/sitemap.xml
+Host: https://lolcallout.com

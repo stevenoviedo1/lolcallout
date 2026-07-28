@@ -1,0 +1,80 @@
+{
+  "source": "mock",
+  "inGame": true,
+  "gameTime": 761.4,
+  "gameMode": "CLASSIC",
+  "mapName": "Map11",
+  "you": {
+    "championName": "Ahri",
+    "level": 11,
+    "currentGold": 1840,
+    "totalGold": 8400,
+    "kills": 4,
+    "deaths": 1,
+    "assists": 3,
+    "creeps": 132,
+    "currentHealth": 1420,
+    "maxHealth": 1680,
+    "currentMana": 680,
+    "maxMana": 1100,
+    "summonerSpells": ["Flash", "Ignite"],
+    "items": ["Needlessly Large Rod", "Sorcerer's Shoes", "Lost Chapter", "Control Ward"],
+    "isDead": false
+  },
+  "scoreboard": [
+    {
+      "championName": "Ahri",
+      "team": "ORDER",
+      "level": 11,
+      "kills": 4,
+      "deaths": 1,
+      "assists": 3,
+      "creeps": 132
+    },
+    {
+      "championName": "LeeSin",
+      "team": "ORDER",
+      "level": 10,
+      "kills": 2,
+      "deaths": 2,
+      "assists": 5,
+      "creeps": 98
+    },
+    {
+      "championName": "Orianna",
+      "team": "CHAOS",
+      "level": 10,
+      "kills": 1,
+      "deaths": 3,
+      "assists": 2,
+      "creeps": 125
+    },
+    {
+      "championName": "Viego",
+      "team": "CHAOS",
+      "level": 10,
+      "kills": 3,
+      "deaths": 2,
+      "assists": 1,
+      "creeps": 110
+    }
+  ],
+  "recentEvents": [
+    {
+      "type": "GAME_START",
+      "gameTime": 0,
+      "message": "Game started"
+    },
+    {
+      "type": "DRAGON",
+      "gameTime": 420,
+      "message": "Dragon killed"
+    },
+    {
+      "type": "OTHER",
+      "gameTime": 700,
+      "message": "Turret plate gold"
+    }
+  ],
+  "updatedAt": "2026-07-27T18:00:00.000Z"
+}

@@ -1,0 +1,684 @@
+/** Voice: browser STT + browser/cloud TTS (xAI natural or your ElevenLabs clone) */
+
+import { toSpeakable } from "@riftcoach/shared";
+import { API_URL } from "./config";
+import { authHeaders } from "./authApi";
+
+export type VoiceStyle = "competitive" | "calm" | "caster";
+export type TtsEngine = "browser" | "xai" | "elevenlabs";
+
+export interface VoicePrefs {
+  rate: number;
+  pitch: number;
+  volume: number;
+  voiceURI: string;
+  style: VoiceStyle;
+  /** browser = robotic OS voices; xai = natural Grok TTS; elevenlabs = YOUR clone */
+  engine: TtsEngine;
+  /** xAI voice name or ElevenLabs voice_id */
+  cloudVoice: string;
+}
+
+/** volume: 0.1–2.5 (100% = 1). Values above 1 boost Natural/xAI via Web Audio. */
+export const VOICE_VOLUME_MIN = 0.1;
+export const VOICE_VOLUME_MAX = 2.5;
+
+export const DEFAULT_VOICE_PREFS: VoicePrefs = {
+  rate: 0.88,
+  pitch: 0.92,
+  volume: 1.4, // a bit loud by default so coach cuts through game audio
+  voiceURI: "",
+  style: "competitive",
+  engine: "xai", // natural by default when API key works
+  cloudVoice: "leo", // coach-like default among xAI voices
+};
+
+export function clampVoiceVolume(v: number): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DEFAULT_VOICE_PREFS.volume;
+  return Math.min(VOICE_VOLUME_MAX, Math.max(VOICE_VOLUME_MIN, n));
+}
+
+export function volumePercentLabel(v: number): string {
+  return `${Math.round(clampVoiceVolume(v) * 100)}%`;
+}
+
+export const STYLE_PRESETS: Record<
+  VoiceStyle,
+  { rate: number; pitch: number; label: string; blurb: string }
+> = {
+  competitive: {
+    rate: 0.88,
+    pitch: 0.92,
+    label: "Competitive",
+    blurb: "Clear ranked comms — steady, not rushed",
+  },
+  calm: {
+    rate: 0.8,
+    pitch: 0.95,
+    label: "Calm",
+    blurb: "Slower review voice",
+  },
+  caster: {
+    rate: 0.95,
+    pitch: 1.0,
+    label: "Caster",
+    blurb: "A bit punchier, still controlled",
+  },
+};
+
+export const XAI_VOICES = [
+  { id: "leo", label: "Leo (recommended coach)" },
+  { id: "rex", label: "Rex" },
+  { id: "sal", label: "Sal" },
+  { id: "eve", label: "Eve" },
+  { id: "ara", label: "Ara" },
+];
+
+export function getSpeechRecognitionCtor(): (new () => SpeechRecognition) | null {
+  const w = window as Window & {
+    SpeechRecognition?: new () => SpeechRecognition;
+    webkitSpeechRecognition?: new () => SpeechRecognition;
+  };
+  return w.SpeechRecognition || w.webkitSpeechRecognition || null;
+}
+
+export function listEnglishVoices(): SpeechSynthesisVoice[] {
+  if (!window.speechSynthesis) return [];
+  return window.speechSynthesis
+    .getVoices()
+    .filter((v) => /^en(-|_|$)/i.test(v.lang) || /english/i.test(v.name))
+    .sort((a, b) => scoreVoice(b) - scoreVoice(a));
+}
+
+function scoreVoice(v: SpeechSynthesisVoice): number {
+  let s = 0;
+  const n = v.name;
+  if (/en-US/i.test(v.lang)) s += 5;
+  if (/Natural|Neural|Online|Google|Microsoft/i.test(n)) s += 8;
+  if (/David|Guy|Mark|James|Ryan|Christopher|Eric|George|Brian|Tony|Richard/i.test(n)) s += 6;
+  if (/Whisper|Robot|Bad|Joke|Evil|Cartoon/i.test(n)) s -= 20;
+  return s;
+}
+
+export function pickCompetitiveVoice(
+  voices: SpeechSynthesisVoice[],
+  preferredURI?: string
+): SpeechSynthesisVoice | null {
+  if (!voices.length) return null;
+  if (preferredURI) {
+    const hit = voices.find((v) => v.voiceURI === preferredURI);
+    if (hit) return hit;
+  }
+  return [...voices].sort((a, b) => scoreVoice(b) - scoreVoice(a))[0] || null;
+}
+
+export { toSpeakable };
+
+let speakQueue: Array<{ text: string; prefs: VoicePrefs }> = [];
+let speaking = false;
+/**
+ * Monotonic generation. Every stopSpeaking() / interrupt bumps this so any
+ * in-flight cloud fetch or browser utterance from an older generation is
+ * discarded and never played (prevents double voice).
+ */
+let speakGeneration = 0;
+let activeTtsAbort: AbortController | null = null;
+let currentPrefs: VoicePrefs = { ...DEFAULT_VOICE_PREFS };
+let currentAudio: HTMLAudioElement | null = null;
+let sharedAudioCtx: AudioContext | null = null;
+let currentGain: GainNode | null = null;
+/** Browser blocks audio until a user gesture — track unlock */
+let audioUnlocked = false;
+let lastVoiceError: string | null = null;
+
+/** True while a line is queued or playing */
+export function isVoiceBusy(): boolean {
+  return speaking || speakQueue.length > 0;
+}
+
+export function getSpeakGeneration(): number {
+  return speakGeneration;
+}
+
+function getAudioContext(): AudioContext | null {
+  const AC =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AC) return null;
+  if (!sharedAudioCtx || sharedAudioCtx.state === "closed") {
+    sharedAudioCtx = new AC();
+  }
+  return sharedAudioCtx;
+}
+type VoiceListener = (info: { error: string | null; unlocked: boolean }) => void;
+const voiceListeners = new Set<VoiceListener>();
+
+export function getLastVoiceError(): string | null {
+  return lastVoiceError;
+}
+
+export function isAudioUnlocked(): boolean {
+  return audioUnlocked;
+}
+
+export function onVoiceStatus(fn: VoiceListener): () => void {
+  voiceListeners.add(fn);
+  return () => voiceListeners.delete(fn);
+}
+
+function notifyVoiceStatus() {
+  const payload = { error: lastVoiceError, unlocked: audioUnlocked };
+  for (const fn of voiceListeners) {
+    try {
+      fn(payload);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function setVoiceError(msg: string | null) {
+  lastVoiceError = msg;
+  notifyVoiceStatus();
+}
+
+/**
+ * Must run from a click/keypress so Chromium allows later autoplay.
+ * Safe to call multiple times.
+ */
+export async function unlockAudio(): Promise<boolean> {
+  try {
+    // Silent WebAudio resume (reuse shared context for later gain boost)
+    const ctx = getAudioContext();
+    if (ctx) {
+      if (ctx.state === "suspended") await ctx.resume();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      gain.gain.value = 0.0001;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.05);
+    }
+
+    // Silent HTMLAudio unlock (helps some Electron/Chromium builds)
+    const silent = new Audio(
+      "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA="
+    );
+    silent.volume = 0.01;
+    await silent.play().catch(() => undefined);
+    silent.pause();
+
+    // Prime speechSynthesis
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(" ");
+      u.volume = 0;
+      window.speechSynthesis.speak(u);
+      window.speechSynthesis.cancel();
+    }
+
+    audioUnlocked = true;
+    setVoiceError(null);
+    notifyVoiceStatus();
+    return true;
+  } catch (e) {
+    console.warn("[voice] unlock failed", e);
+    return false;
+  }
+}
+
+export function setVoicePrefs(prefs: Partial<VoicePrefs>) {
+  currentPrefs = { ...currentPrefs, ...prefs };
+}
+
+export function getVoicePrefs(): VoicePrefs {
+  return { ...currentPrefs };
+}
+
+async function playCloudTts(
+  text: string,
+  prefs: VoicePrefs,
+  generation: number
+): Promise<void> {
+  if (generation !== speakGeneration) return;
+
+  activeTtsAbort?.abort();
+  const controller = new AbortController();
+  activeTtsAbort = controller;
+  const timer = window.setTimeout(() => controller.abort(), 20_000);
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/v1/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({
+        text,
+        provider: prefs.engine === "browser" ? "xai" : prefs.engine,
+        voice: prefs.cloudVoice || undefined,
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timer);
+  }
+
+  // Interrupted while waiting on network — drop silently
+  if (generation !== speakGeneration || controller.signal.aborted) {
+    return;
+  }
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((err as { error?: string }).error || `TTS ${res.status}`);
+  }
+
+  const blob = await res.blob();
+  if (!blob.size) throw new Error("Empty audio from TTS");
+  if (generation !== speakGeneration) return;
+
+  const url = URL.createObjectURL(blob);
+  const vol = clampVoiceVolume(prefs.volume ?? DEFAULT_VOICE_PREFS.volume);
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      if (generation !== speakGeneration) {
+        URL.revokeObjectURL(url);
+        resolve();
+        return;
+      }
+
+      const audio = new Audio();
+      currentAudio = audio;
+      audio.preload = "auto";
+      audio.crossOrigin = "anonymous";
+      audio.src = url;
+      audio.playbackRate = Math.min(1.25, Math.max(0.75, (prefs.rate || 0.88) / 0.88));
+
+      let usedWebAudio = false;
+      try {
+        const ctx = getAudioContext();
+        if (ctx) {
+          if (ctx.state === "suspended") void ctx.resume();
+          const source = ctx.createMediaElementSource(audio);
+          const gain = ctx.createGain();
+          gain.gain.value = vol; // can be > 1 for boost over game audio
+          source.connect(gain);
+          gain.connect(ctx.destination);
+          currentGain = gain;
+          // Route ONLY through WebAudio — prevent dual speaker output
+          audio.volume = 0;
+          usedWebAudio = true;
+        }
+      } catch (e) {
+        console.warn("[voice] WebAudio gain unavailable, using element volume", e);
+      }
+      if (!usedWebAudio) {
+        audio.volume = Math.min(1, vol);
+      }
+
+      const cleanup = () => {
+        URL.revokeObjectURL(url);
+        if (currentAudio === audio) currentAudio = null;
+        if (currentGain) currentGain = null;
+      };
+
+      audio.onended = () => {
+        cleanup();
+        resolve();
+      };
+      audio.onerror = () => {
+        cleanup();
+        // If we were interrupted, treat as soft success
+        if (generation !== speakGeneration) resolve();
+        else reject(new Error("Audio playback failed"));
+      };
+
+      void audio
+        .play()
+        .then(() => {
+          if (generation !== speakGeneration) {
+            try {
+              audio.pause();
+              audio.src = "";
+            } catch {
+              /* ignore */
+            }
+            cleanup();
+            resolve();
+            return;
+          }
+          audioUnlocked = true;
+          setVoiceError(null);
+        })
+        .catch((err: unknown) => {
+          cleanup();
+          if (generation !== speakGeneration) {
+            resolve();
+            return;
+          }
+          const name = err instanceof Error ? err.name : "";
+          if (name === "NotAllowedError") {
+            reject(
+              new Error(
+                "Browser blocked audio — click 🔊 Voice ON or Test voice once, then try again"
+              )
+            );
+          } else {
+            reject(err instanceof Error ? err : new Error("Audio play failed"));
+          }
+        });
+    });
+  } catch (e) {
+    URL.revokeObjectURL(url);
+    throw e;
+  }
+}
+
+function waitForVoices(ms = 800): Promise<SpeechSynthesisVoice[]> {
+  return new Promise((resolve) => {
+    if (!window.speechSynthesis) {
+      resolve([]);
+      return;
+    }
+    const existing = window.speechSynthesis.getVoices();
+    if (existing.length) {
+      resolve(existing);
+      return;
+    }
+    const done = () => {
+      window.speechSynthesis.removeEventListener("voiceschanged", done);
+      resolve(window.speechSynthesis.getVoices());
+    };
+    window.speechSynthesis.addEventListener("voiceschanged", done);
+    window.setTimeout(done, ms);
+  });
+}
+
+async function playBrowserTts(
+  text: string,
+  prefs: VoicePrefs,
+  generation: number
+): Promise<void> {
+  if (!window.speechSynthesis) {
+    throw new Error("No speechSynthesis in this browser — use Chrome/Edge or Natural (xAI)");
+  }
+  if (generation !== speakGeneration) return;
+
+  // Chromium bug: cancel/resume can leave synth stuck silent
+  window.speechSynthesis.cancel();
+  await new Promise((r) => setTimeout(r, 40));
+  if (generation !== speakGeneration) return;
+
+  const all = await waitForVoices();
+  if (generation !== speakGeneration) return;
+  const english = listEnglishVoices();
+  const voice = pickCompetitiveVoice(english.length ? english : all, prefs.voiceURI || undefined);
+
+  await new Promise<void>((resolve, reject) => {
+    if (generation !== speakGeneration) {
+      resolve();
+      return;
+    }
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = Math.min(1.4, Math.max(0.55, prefs.rate));
+    u.pitch = Math.min(1.4, Math.max(0.7, prefs.pitch));
+    // Browser TTS cannot boost past 100%
+    u.volume = Math.min(1, Math.max(0.1, clampVoiceVolume(prefs.volume ?? 1)));
+    u.lang = voice?.lang || "en-US";
+    if (voice) u.voice = voice;
+
+    let settled = false;
+    const finish = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(watchdog);
+      if (generation !== speakGeneration) {
+        resolve();
+        return;
+      }
+      if (err) reject(err);
+      else resolve();
+    };
+
+    // If synth dies silently, don't hang the queue forever
+    const watchdog = window.setTimeout(() => {
+      window.speechSynthesis.cancel();
+      finish(new Error("Browser voice timed out — try Natural (xAI) engine"));
+    }, 15_000);
+
+    u.onend = () => finish();
+    u.onerror = (ev) => {
+      const code = (ev as SpeechSynthesisErrorEvent).error;
+      if (code === "interrupted" || code === "canceled") finish();
+      else finish(new Error(`Browser voice error: ${code || "unknown"}`));
+    };
+
+    try {
+      window.speechSynthesis.speak(u);
+      // Some Electron builds need a kick
+      if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+    } catch (e) {
+      finish(e instanceof Error ? e : new Error("speak() failed"));
+    }
+  });
+}
+
+async function pumpQueue() {
+  if (speaking) return;
+  const next = speakQueue.shift();
+  if (!next) return;
+  speaking = true;
+  const generation = speakGeneration;
+  const { text, prefs } = next;
+  currentPrefs = { ...prefs };
+
+  try {
+    if (generation !== speakGeneration) return;
+
+    // Exactly ONE engine per utterance — never cloud then browser at once
+    if (prefs.engine === "xai" || prefs.engine === "elevenlabs") {
+      try {
+        await playCloudTts(text, prefs, generation);
+        if (generation === speakGeneration) setVoiceError(null);
+      } catch (e) {
+        if (generation !== speakGeneration) return;
+        const msg = e instanceof Error ? e.message : "Cloud TTS failed";
+        console.warn("[voice] cloud TTS failed, falling back to browser", e);
+        // Kill any partial cloud audio before browser starts
+        hardStopAudioOnly();
+        try {
+          window.speechSynthesis?.cancel();
+          await playBrowserTts(text, prefs, generation);
+          if (generation === speakGeneration) {
+            setVoiceError(`Cloud TTS failed (${msg}) — used browser voice`);
+          }
+        } catch (e2) {
+          if (generation !== speakGeneration) return;
+          const msg2 = e2 instanceof Error ? e2.message : "Browser TTS failed";
+          console.error("[voice] all TTS failed", e, e2);
+          setVoiceError(`Voice failed: ${msg}. Fallback: ${msg2}`);
+        }
+      }
+    } else {
+      try {
+        await playBrowserTts(text, prefs, generation);
+        if (generation === speakGeneration) setVoiceError(null);
+      } catch (e) {
+        if (generation !== speakGeneration) return;
+        const msg = e instanceof Error ? e.message : "Browser TTS failed";
+        console.warn("[voice] browser TTS failed, trying xAI", e);
+        try {
+          window.speechSynthesis?.cancel();
+          await playCloudTts(text, { ...prefs, engine: "xai" }, generation);
+          if (generation === speakGeneration) {
+            setVoiceError(`Browser voice failed — used Natural (xAI)`);
+          }
+        } catch (e2) {
+          if (generation !== speakGeneration) return;
+          const msg2 = e2 instanceof Error ? e2.message : "xAI TTS failed";
+          setVoiceError(`Voice failed: ${msg}. ${msg2}`);
+        }
+      }
+    }
+  } finally {
+    // Only the active generation may clear the busy flag / continue queue
+    if (generation === speakGeneration) {
+      speaking = false;
+      await new Promise((r) => setTimeout(r, 80));
+      if (generation === speakGeneration) void pumpQueue();
+    }
+  }
+}
+
+function hardStopAudioOnly() {
+  try {
+    window.speechSynthesis?.cancel();
+  } catch {
+    /* ignore */
+  }
+  if (currentGain) {
+    try {
+      currentGain.gain.value = 0;
+    } catch {
+      /* ignore */
+    }
+    currentGain = null;
+  }
+  if (currentAudio) {
+    try {
+      currentAudio.pause();
+      currentAudio.removeAttribute("src");
+      currentAudio.load();
+    } catch {
+      /* ignore */
+    }
+    currentAudio = null;
+  }
+}
+
+export function speakText(
+  text: string,
+  opts?: {
+    interrupt?: boolean;
+    rate?: number;
+    pitch?: number;
+    volume?: number;
+    maxChars?: number;
+    prefs?: Partial<VoicePrefs>;
+  }
+) {
+  const spoken = toSpeakable(text, opts?.maxChars ?? 200);
+  if (!spoken) {
+    console.warn("[voice] empty speakable text from", text.slice(0, 80));
+    return;
+  }
+
+  const prefs: VoicePrefs = {
+    ...currentPrefs,
+    ...opts?.prefs,
+    rate: opts?.rate ?? opts?.prefs?.rate ?? currentPrefs.rate,
+    pitch: opts?.pitch ?? opts?.prefs?.pitch ?? currentPrefs.pitch,
+    volume: opts?.volume ?? opts?.prefs?.volume ?? currentPrefs.volume,
+  };
+
+  prefs.volume = clampVoiceVolume(prefs.volume ?? DEFAULT_VOICE_PREFS.volume);
+
+  // Always single-slot for coach: replace any pending/playing line
+  const interrupt = opts?.interrupt !== false;
+  if (interrupt) {
+    stopSpeaking();
+  }
+
+  speakQueue = [{ text: spoken, prefs }];
+  void pumpQueue();
+}
+
+export function stopSpeaking() {
+  // Bump generation first so in-flight fetch/play aborts cleanly
+  speakGeneration += 1;
+  speakQueue = [];
+  speaking = false;
+  try {
+    activeTtsAbort?.abort();
+  } catch {
+    /* ignore */
+  }
+  activeTtsAbort = null;
+  hardStopAudioOnly();
+}
+
+/** Live-adjust volume while something is playing (Natural/xAI path) */
+export function applyLiveVolume(volume: number) {
+  const v = clampVoiceVolume(volume);
+  currentPrefs = { ...currentPrefs, volume: v };
+  if (currentGain) {
+    currentGain.gain.value = v;
+  } else if (currentAudio) {
+    currentAudio.volume = Math.min(1, v);
+  }
+}
+
+export function testVoice(prefs?: Partial<VoicePrefs>) {
+  // Unlock from this click so later auto-callouts can play
+  void unlockAudio().then(() => {
+    if (prefs) setVoicePrefs(prefs);
+    speakText(
+      // Deliberately includes KDA-style numbers to prove date fix
+      "Coach online. You're four kills, one death, three assists. Base now. One thousand six hundred gold. Don't fight without flash.",
+      { interrupt: true, maxChars: 320, prefs }
+    );
+  });
+}
+
+export async function fetchTtsStatus(): Promise<{
+  xai: boolean;
+  elevenlabs: boolean;
+  xaiVoices: string[];
+}> {
+  try {
+    const res = await fetch(`${API_URL}/v1/tts/status`);
+    if (!res.ok) throw new Error("status fail");
+    return res.json();
+  } catch {
+    return { xai: false, elevenlabs: false, xaiVoices: [] };
+  }
+}
+
+/** Map rough voice commands to chips / free text */
+export function interpretVoiceCommand(raw: string): {
+  text: string;
+  intent?: "what_now" | "item" | "roam" | "objective" | "why_die" | "free";
+} | null {
+  const t = raw.trim();
+  if (!t || t.length < 2) return null;
+
+  const lower = t.toLowerCase().replace(/[^\w\s']/g, " ").replace(/\s+/g, " ").trim();
+  if (lower.length < 3) return null;
+
+  let body = lower;
+  const wake = /^(hey )?coach[, ]+|^(hey )?rift[, ]+|^ok coach[, ]+/i;
+  if (wake.test(body)) {
+    body = body.replace(wake, "").trim();
+  }
+  if (!body) return null;
+
+  if (/^(what now|what do i do|help|call|status|next)$/i.test(body) || body.includes("what now")) {
+    return { text: "What now?", intent: "what_now" };
+  }
+  if (/\b(item|buy|shop|build)\b/i.test(body)) {
+    return { text: body, intent: "item" };
+  }
+  if (/\b(roam|gank|leave lane)\b/i.test(body)) {
+    return { text: body, intent: "roam" };
+  }
+  if (/\b(dragon|baron|herald|objective|obj)\b/i.test(body)) {
+    return { text: body, intent: "objective" };
+  }
+  if (/\b(why.*(die|died)|death review|how did i die)\b/i.test(body)) {
+    return { text: "Why did I die?", intent: "why_die" };
+  }
+
+  return { text: t, intent: "free" };
+}

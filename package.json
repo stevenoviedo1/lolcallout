@@ -1,0 +1,30 @@
+{
+  "name": "riftcoach",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vanguard-safe live AI League of Legends coach",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,agent,desktop -c blue,green,magenta \"npm run dev -w @riftcoach/api\" \"npm run dev -w @riftcoach/agent\" \"npm run dev -w @riftcoach/desktop\"",
+    "dev:api": "npm run dev -w @riftcoach/api",
+    "dev:agent": "npm run dev -w @riftcoach/agent",
+    "dev:desktop": "npm run dev -w @riftcoach/desktop",
+    "dev:web": "npm run dev -w @riftcoach/web",
+    "companion": "npm run companion -w @riftcoach/desktop",
+    "playtest:friend": "powershell -ExecutionPolicy Bypass -File ./scripts/playtest-friend.ps1",
+    "build": "npm run build -w @riftcoach/shared && npm run build -w @riftcoach/prompts && npm run build -w @riftcoach/api && npm run build -w @riftcoach/agent && npm run build -w @riftcoach/desktop",
+    "build:api": "npm run build -w @riftcoach/shared && npm run build -w @riftcoach/prompts && npm run build -w @riftcoach/api",
+    "start:api": "npm run start -w @riftcoach/api",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

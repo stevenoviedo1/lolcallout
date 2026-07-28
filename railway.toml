@@ -1,0 +1,12 @@
+# Railway — API only (do NOT install desktop/electron)
+# In Railway dashboard: Root Directory = blank (repo root)
+# Builder: Dockerfile (recommended) OR NIXPACKS with commands below
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.api"
+
+[deploy]
+# Dockerfile CMD is the start command
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

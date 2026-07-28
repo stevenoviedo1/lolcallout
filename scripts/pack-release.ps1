@@ -1,0 +1,151 @@
+# Build a Windows playtest release of LOLCallout
+$ErrorActionPreference = "Stop"
+$root = Split-Path $PSScriptRoot -Parent
+Set-Location $root
+
+Write-Host "==> Building packages" -ForegroundColor Cyan
+npm run build -w @riftcoach/shared
+npm run build -w @riftcoach/prompts
+npm run build -w @riftcoach/api
+npm run build -w @riftcoach/agent
+npm run build -w @riftcoach/desktop
+
+$pack = Join-Path $root "apps\desktop\release-pack"
+if (Test-Path $pack) { Remove-Item $pack -Recurse -Force }
+New-Item -ItemType Directory -Path "$pack\server\api" -Force | Out-Null
+New-Item -ItemType Directory -Path "$pack\server\agent" -Force | Out-Null
+New-Item -ItemType Directory -Path "$pack\ui" -Force | Out-Null
+
+Write-Host "==> Copying server bundles" -ForegroundColor Cyan
+Copy-Item "$root\apps\api\dist\*" "$pack\server\api\" -Recurse -Force
+Copy-Item "$root\apps\agent\dist\*" "$pack\server\agent\" -Recurse -Force
+
+New-Item -ItemType Directory -Path "$pack\server\node_modules\@riftcoach\shared" -Force | Out-Null
+New-Item -ItemType Directory -Path "$pack\server\node_modules\@riftcoach\prompts" -Force | Out-Null
+Copy-Item "$root\packages\shared\package.json" "$pack\server\node_modules\@riftcoach\shared\"
+Copy-Item "$root\packages\shared\dist" "$pack\server\node_modules\@riftcoach\shared\dist" -Recurse
+Copy-Item "$root\packages\prompts\package.json" "$pack\server\node_modules\@riftcoach\prompts\"
+Copy-Item "$root\packages\prompts\dist" "$pack\server\node_modules\@riftcoach\prompts\dist" -Recurse
+
+$serverPkg = @'
+{
+  "name": "lolcallout-server",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "openai": "^4.89.0",
+    "stripe": "^17.7.0",
+    "uuid": "^11.1.0",
+    "undici": "^7.8.0",
+    "screenshot-desktop": "^1.15.0"
+  }
+}
+'@
+Set-Content "$pack\server\package.json" $serverPkg -Encoding utf8
+
+Write-Host "==> npm install server deps" -ForegroundColor Cyan
+Push-Location "$pack\server"
+npm install --omit=dev
+Pop-Location
+
+Copy-Item "$root\apps\desktop\dist\*" "$pack\ui\" -Recurse -Force
+if (Test-Path "$root\apps\desktop\public\icon.jpg") {
+  Copy-Item "$root\apps\desktop\public\icon.jpg" "$pack\ui\icon.jpg" -Force
+}
+if (Test-Path "$root\apps\web\icon.jpg") {
+  Copy-Item "$root\apps\web\icon.jpg" "$pack\ui\icon.jpg" -Force
+}
+
+$envSrc = Join-Path $root ".env"
+$playtestEnv = Join-Path $pack "playtest.env"
+$extra = @(
+  "API_PORT=8787",
+  "AGENT_PORT=3847",
+  "AGENT_USE_MOCK=false",
+  "AUTH_DEV_RETURN_LINK=1",
+  "AUTH_APP_URL=http://127.0.0.1:5179",
+  "API_PUBLIC_URL=http://127.0.0.1:8787",
+  "CORS_ORIGIN=http://127.0.0.1:5179"
+)
+if (Test-Path $envSrc) {
+  $lines = Get-Content $envSrc | Where-Object {
+    $_ -match '^(XAI_|AUTH_|API_|AGENT_|TTS_|RESEND_|STRIPE_)' -or $_ -match '^\s*#' -or $_ -match '^[A-Z0-9_]+='
+  }
+  ($lines + $extra) | Set-Content $playtestEnv -Encoding utf8
+  Write-Host "Wrote playtest.env from root .env (playtest keys baked in)" -ForegroundColor Yellow
+} else {
+  Write-Host "WARNING: no root .env - build may lack XAI_API_KEY" -ForegroundColor Red
+  $extra | Set-Content $playtestEnv -Encoding utf8
+}
+
+Write-Host "==> Rebuild desktop UI" -ForegroundColor Cyan
+npm run build -w @riftcoach/desktop
+
+Write-Host "==> electron-builder" -ForegroundColor Cyan
+$desktop = Join-Path $root "apps\desktop"
+$releaseDir = Join-Path $desktop "release"
+$unpacked = Join-Path $releaseDir "win-unpacked"
+
+# Close any running playtest build so Windows unlocks DLLs
+Get-Process -Name "LOLCallout" -ErrorAction SilentlyContinue | ForEach-Object {
+  Write-Host "Stopping running LOLCallout (PID $($_.Id))..." -ForegroundColor Yellow
+  Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+}
+Start-Sleep -Seconds 1
+if (Test-Path $unpacked) {
+  Write-Host "Cleaning locked release\win-unpacked..." -ForegroundColor DarkGray
+  Remove-Item $unpacked -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+Push-Location $desktop
+
+# Monorepo hoists electron to root — electron-builder only looks under apps/desktop.
+# Link (or copy) so packaging can resolve electron@33.4.11.
+$hoistedElectron = Join-Path $root "node_modules\electron"
+$localNm = Join-Path $desktop "node_modules"
+$localElectron = Join-Path $localNm "electron"
+if (-not (Test-Path $localNm)) {
+  New-Item -ItemType Directory -Path $localNm -Force | Out-Null
+}
+if ((Test-Path $hoistedElectron) -and -not (Test-Path (Join-Path $localElectron "package.json"))) {
+  if (Test-Path $localElectron) { Remove-Item $localElectron -Recurse -Force -ErrorAction SilentlyContinue }
+  try {
+    New-Item -ItemType Junction -Path $localElectron -Target $hoistedElectron -Force | Out-Null
+    Write-Host "Linked apps/desktop/node_modules/electron -> monorepo root" -ForegroundColor DarkGray
+  } catch {
+    Write-Host "Junction failed, copying electron module..." -ForegroundColor Yellow
+    Copy-Item $hoistedElectron $localElectron -Recurse -Force
+  }
+}
+
+$builderJs = Join-Path $root "node_modules\electron-builder\cli.js"
+if (-not (Test-Path $builderJs)) {
+  $builderJs = Join-Path $desktop "node_modules\electron-builder\cli.js"
+}
+if (-not (Test-Path $builderJs)) {
+  throw "electron-builder not found. From repo root run: npm install"
+}
+
+# Fixed version (no caret) so builder can download if needed
+& node $builderJs --win portable --x64 --config.electronVersion=33.4.11
+if ($LASTEXITCODE -ne 0) {
+  Pop-Location
+  throw "electron-builder failed with exit code $LASTEXITCODE"
+}
+Pop-Location
+
+$dist = Join-Path $root "apps\desktop\release"
+Write-Host ""
+Write-Host "Done. Output:" -ForegroundColor Green
+Get-ChildItem $dist -ErrorAction SilentlyContinue | Format-Table Name, @{N='MB';E={[math]::Round($_.Length/1MB,2)}}, LastWriteTime
+
+$exe = Join-Path $dist "LOLCallout-Playtest.exe"
+if (Test-Path $exe) {
+  Write-Host ""
+  Write-Host "Playtest exe ready:" -ForegroundColor Green
+  Write-Host "  $exe"
+  Write-Host "Double-click to run. Replaces the old download only after you copy/reupload this file."
+}

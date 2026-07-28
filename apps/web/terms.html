@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Terms of Service — LOLCallout</title>
+    <meta name="description" content="Terms of service for LOLCallout, the live AI League of Legends coach." />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://lolcallout.com/terms.html" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="/logo-circle.png" type="image/png" sizes="512x512" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="stylesheet" href="/styles.css?v=20260728d" />
+  </head>
+  <body>
+    <header class="nav">
+      <div class="container nav-inner">
+        <a class="brand" href="/"><img class="brand-logo" src="/logo-circle.png" width="36" height="36" alt="LOLCallout" /><span>LOLCallout</span></a>
+        <nav class="nav-links open" style="display: flex">
+          <a href="/">Home</a>
+          <a href="/privacy.html">Privacy</a>
+          <a href="/compliance.html">Compliance</a>
+        </nav>
+      </div>
+    </header>
+    <div class="legal-page">
+      <h1>Terms of Service</h1>
+      <p style="color: var(--muted)">Draft — lawyer review required before paid launch.</p>
+      <pre id="content">Loading…</pre>
+    </div>
+    <script>
+      fetch("/terms.md")
+        .then((r) => r.text())
+        .then((t) => {
+          document.getElementById("content").textContent = t;
+        })
+        .catch(() => {
+          document.getElementById("content").textContent =
+            "See docs/legal/TERMS.md in the repo if this page fails to load.";
+        });
+    </script>
+  </body>
+</html>
