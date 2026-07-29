@@ -158,6 +158,34 @@ if ($LASTEXITCODE -ne 0) {
   Pop-Location
   throw "electron-builder failed with exit code $LASTEXITCODE"
 }
+
+# electron-builder frequently omits nested node_modules from extraResources.
+# Without them the Live Client agent exits immediately → app shows Offline in-game.
+$serverNmSrc = Join-Path $pack "server\node_modules"
+$serverNmDst = Join-Path $unpacked "resources\server\node_modules"
+$expressOk = Test-Path (Join-Path $serverNmDst "express\package.json")
+if (-not $expressOk) {
+  if (-not (Test-Path (Join-Path $serverNmSrc "express\package.json"))) {
+    Pop-Location
+    throw "release-pack/server/node_modules missing express - npm install step failed"
+  }
+  Write-Host "==> Injecting server node_modules into win-unpacked (Live Client agent deps)" -ForegroundColor Yellow
+  if (Test-Path $serverNmDst) { Remove-Item $serverNmDst -Recurse -Force -ErrorAction SilentlyContinue }
+  Copy-Item $serverNmSrc $serverNmDst -Recurse -Force
+  if (-not (Test-Path (Join-Path $serverNmDst "express\package.json"))) {
+    Pop-Location
+    throw "Failed to inject server node_modules into win-unpacked"
+  }
+  Write-Host "==> Rebuilding NSIS + portable from fixed prepackaged app" -ForegroundColor Cyan
+  & node $builderJs --win nsis portable --x64 --prepackaged $unpacked --config.electronVersion=39.8.10
+  if ($LASTEXITCODE -ne 0) {
+    Pop-Location
+    throw "electron-builder --prepackaged failed with exit code $LASTEXITCODE"
+  }
+} else {
+  Write-Host "Server node_modules already present in win-unpacked" -ForegroundColor DarkGray
+}
+
 Pop-Location
 
 $dist = Join-Path $root "apps\desktop\release"
@@ -173,7 +201,7 @@ Write-Host ""
 Write-Host "Installers ready:" -ForegroundColor Green
 if ($setup) {
   Write-Host "  Desktop installer (recommended): $($setup.FullName)"
-  Write-Host "  → Creates Desktop + Start Menu shortcut with logo"
+  Write-Host "  -> Creates Desktop + Start Menu shortcut with logo"
 }
 if (Test-Path $portable) {
   Write-Host "  Portable: $portable"
