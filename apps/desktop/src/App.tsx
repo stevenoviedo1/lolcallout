@@ -591,6 +591,26 @@ export default function App() {
             <h2>Settings</h2>
             <p className="muted">Coach voice, guidance density, and layout.</p>
 
+            <div className="settings-setup-row">
+              <button
+                type="button"
+                className="chip chip-primary"
+                onClick={() => {
+                  try {
+                    localStorage.removeItem("rc_setup_complete");
+                  } catch {
+                    /* ignore */
+                  }
+                  window.location.reload();
+                }}
+              >
+                Run first-time setup again
+              </button>
+              <p className="muted" style={{ margin: "8px 0 0" }}>
+                Reopen the guided wizard for callouts, voice, and HUD preferences.
+              </p>
+            </div>
+
             <h3 className="settings-sub">Coach</h3>
             <label className="toggle">
               <input

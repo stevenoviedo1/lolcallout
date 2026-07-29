@@ -15,6 +15,11 @@ const PROTOCOL = "lolcallout";
 let mainWindow = null;
 let staticServer = null;
 let bootPorts = { apiPort: "8787", agentPort: "3847", uiPort: 5179 };
+/** Last spawn args so we can restart the Live Client agent if it crashes */
+let agentSpawnArgs = null;
+let agentRestartTimer = null;
+let agentRestarts = 0;
+let shuttingDown = false;
 
 /** Single instance so magic-link opens the existing window */
 const gotLock = app.requestSingleInstanceLock();
@@ -67,7 +72,8 @@ function loadEnvFile(filePath) {
   }
 }
 
-function spawnNodeScript(scriptPath, envExtra, name, cwd) {
+function spawnNodeScript(scriptPath, envExtra, name, cwd, opts = {}) {
+  const { appendLog = false, onExit = null } = opts;
   const env = {
     ...process.env,
     ...envExtra,
@@ -82,11 +88,19 @@ function spawnNodeScript(scriptPath, envExtra, name, cwd) {
     /* ignore */
   }
   const logPath = path.join(logDir, `${name}.log`);
-  // Truncate old crash logs so we can see the latest boot clearly
-  try {
-    fs.writeFileSync(logPath, "");
-  } catch {
-    /* ignore */
+  // Truncate only on first boot; restarts append so we keep history
+  if (!appendLog) {
+    try {
+      fs.writeFileSync(logPath, "");
+    } catch {
+      /* ignore */
+    }
+  } else {
+    try {
+      fs.appendFileSync(logPath, `\n[restart ${new Date().toISOString()}]\n`);
+    } catch {
+      /* ignore */
+    }
   }
   // cwd must be the server root (where node_modules/@riftcoach/* lives) so ESM resolves
   const child = spawn(process.execPath, [scriptPath], {
@@ -113,9 +127,43 @@ function spawnNodeScript(scriptPath, envExtra, name, cwd) {
     } catch {
       /* ignore */
     }
+    const idx = children.indexOf(child);
+    if (idx >= 0) children.splice(idx, 1);
+    if (typeof onExit === "function") onExit(code);
   });
   children.push(child);
   return child;
+}
+
+function scheduleAgentRestart(reason) {
+  if (shuttingDown || !agentSpawnArgs) return;
+  if (agentRestartTimer) return;
+  agentRestarts += 1;
+  if (agentRestarts > 12) {
+    console.error("[agent] too many restarts — giving up until app relaunch");
+    return;
+  }
+  const delay = Math.min(8_000, 800 * agentRestarts);
+  console.warn(`[agent] scheduling restart in ${delay}ms (${reason})`);
+  agentRestartTimer = setTimeout(() => {
+    agentRestartTimer = null;
+    if (shuttingDown || !agentSpawnArgs) return;
+    const port = bootPorts.agentPort || "3847";
+    void httpOk(`http://127.0.0.1:${port}/health`, 900).then((ok) => {
+      if (ok || shuttingDown || !agentSpawnArgs) {
+        if (ok) agentRestarts = 0;
+        return;
+      }
+      const { scriptPath, envExtra, cwd } = agentSpawnArgs;
+      console.log("[agent] restarting Live Client agent…");
+      spawnNodeScript(scriptPath, envExtra, "agent", cwd, {
+        appendLog: true,
+        onExit: (code) => {
+          if (!shuttingDown && code !== 0) scheduleAgentRestart(`exit ${code}`);
+        },
+      });
+    });
+  }, delay);
 }
 
 /** True if something already answers HTTP on this URL (healthy leftover from prior run). */
@@ -240,10 +288,32 @@ async function startBackend() {
   }
 
   const agentHealthy = await httpOk(`http://127.0.0.1:${agentPort}/health`);
+  agentSpawnArgs = { scriptPath: agentEntry, envExtra: common, cwd: serverCwd };
   if (agentHealthy) {
     console.log(`[boot] reusing local agent on :${agentPort}`);
+    agentRestarts = 0;
   } else {
-    spawnNodeScript(agentEntry, common, "agent", serverCwd);
+    spawnNodeScript(agentEntry, common, "agent", serverCwd, {
+      onExit: (code) => {
+        if (!shuttingDown && code !== 0) scheduleAgentRestart(`exit ${code}`);
+      },
+    });
+  }
+
+  // If agent dies mid-session (or never came up), keep trying so UI is not stuck Offline
+  if (!agentRestartTimer) {
+    const healthLoop = () => {
+      if (shuttingDown) return;
+      void httpOk(`http://127.0.0.1:${bootPorts.agentPort}/health`, 900).then((ok) => {
+        if (ok) {
+          agentRestarts = 0;
+        } else if (agentSpawnArgs) {
+          scheduleAgentRestart("health check failed");
+        }
+        if (!shuttingDown) setTimeout(healthLoop, 5_000);
+      });
+    };
+    setTimeout(healthLoop, 4_000);
   }
 
   return bootPorts;
@@ -563,10 +633,20 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
+  shuttingDown = true;
+  if (agentRestartTimer) {
+    clearTimeout(agentRestartTimer);
+    agentRestartTimer = null;
+  }
   killChildren();
   if (process.platform !== "darwin") app.quit();
 });
 
 app.on("before-quit", () => {
+  shuttingDown = true;
+  if (agentRestartTimer) {
+    clearTimeout(agentRestartTimer);
+    agentRestartTimer = null;
+  }
   killChildren();
 });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import App from "./App";
 import { LoginScreen } from "./components/LoginScreen";
+import { SetupWizard } from "./components/SetupWizard";
 import { UpdateBanner } from "./components/UpdateBanner";
 import {
   AuthUser,
@@ -10,14 +11,16 @@ import {
   logout,
   setStoredToken,
 } from "./lib/authApi";
+import { isSetupComplete } from "./lib/setupPrefs";
 
 /**
- * Auth gate: email + password against the LOLCallout account API.
+ * Auth gate → first-run setup → main app.
  */
 export function Root() {
   const [booting, setBooting] = useState(true);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [bootHint, setBootHint] = useState("Starting LOLCallout…");
+  const [needsSetup, setNeedsSetup] = useState(() => !isSetupComplete());
 
   const refresh = useCallback(async () => {
     try {
@@ -83,6 +86,16 @@ export function Root() {
       <>
         <UpdateBanner />
         <LoginScreen onSignedIn={handleSignedIn} />
+      </>
+    );
+  }
+
+  // First download / new PC: guided setup before the main HUD
+  if (needsSetup) {
+    return (
+      <>
+        <UpdateBanner />
+        <SetupWizard onDone={() => setNeedsSetup(false)} />
       </>
     );
   }

@@ -134,8 +134,10 @@ let lastVoiceError: string | null = null;
 /** When the current utterance marked itself busy (for stuck detection) */
 let speakingSince = 0;
 /** Hard cap so a hung fetch/play can never leave the coach mute forever */
-const MAX_UTTERANCE_MS = 14_000;
+const MAX_UTTERANCE_MS = 28_000;
 let utteranceWatchdog: number | null = null;
+/** Track MediaElementSources so we never double-connect the same element */
+const mediaElementSources = new WeakSet<HTMLMediaElement>();
 
 /** True while a line is queued or playing */
 export function isVoiceBusy(): boolean {
@@ -336,12 +338,25 @@ async function playCloudTts(
     throw new Error((err as { error?: string }).error || `TTS ${res.status}`);
   }
 
-  const blob = await res.blob();
-  if (!blob.size) throw new Error("Empty audio from TTS");
+  const rawBlob = await res.blob();
+  if (!rawBlob.size) throw new Error("Empty audio from TTS");
   if (generation !== speakGeneration) return;
+
+  // Ensure MIME is set — empty type can fail decode/play in Electron
+  const headerType = res.headers.get("content-type") || "";
+  const mime =
+    rawBlob.type ||
+    (headerType.includes("wav")
+      ? "audio/wav"
+      : headerType.includes("ogg")
+        ? "audio/ogg"
+        : "audio/mpeg");
+  const blob = rawBlob.type ? rawBlob : new Blob([rawBlob], { type: mime });
 
   const url = URL.createObjectURL(blob);
   const vol = clampVoiceVolume(prefs.volume ?? DEFAULT_VOICE_PREFS.volume);
+  // Boost (>100%) needs WebAudio gain; otherwise plain element volume is more reliable
+  const needBoost = vol > 1.01;
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -361,6 +376,7 @@ async function playCloudTts(
       let usedWebAudio = false;
       let settled = false;
       let playWatchdog = 0;
+      let started = false;
 
       const cleanup = () => {
         URL.revokeObjectURL(url);
@@ -378,49 +394,70 @@ async function playCloudTts(
         else resolve();
       };
 
-      try {
-        const ctx = getAudioContext();
-        if (ctx) {
-          // Must resume before routing or playback is silent forever
-          if (ctx.state === "suspended") {
-            void ctx.resume().catch(() => undefined);
+      const armWatchdog = (ms: number) => {
+        window.clearTimeout(playWatchdog);
+        playWatchdog = window.setTimeout(() => {
+          // Only treat as failure if we never started, or playback is frozen
+          if (!started || audio.paused) {
+            try {
+              audio.pause();
+            } catch {
+              /* ignore */
+            }
+            finish(new Error("Audio playback timed out"));
+          } else {
+            // Still playing past estimate — extend once, then soft-end
+            try {
+              audio.pause();
+            } catch {
+              /* ignore */
+            }
+            finish();
           }
-          if (ctx.state === "running" || ctx.state === "suspended") {
-            const source = ctx.createMediaElementSource(audio);
-            const gain = ctx.createGain();
-            gain.gain.value = vol; // can be > 1 for boost over game audio
-            source.connect(gain);
-            gain.connect(ctx.destination);
-            currentGain = gain;
-            // Route ONLY through WebAudio when context is live; else keep element vol
-            audio.volume = ctx.state === "running" ? 0 : Math.min(1, vol);
-            usedWebAudio = true;
+        }, ms);
+      };
+
+      // Initial watchdog: fail if play never starts
+      armWatchdog(8_000);
+
+      try {
+        if (needBoost && !mediaElementSources.has(audio)) {
+          const ctx = getAudioContext();
+          if (ctx) {
             if (ctx.state === "suspended") {
-              void ctx.resume().then(() => {
-                if (currentGain === gain && generation === speakGeneration) {
-                  audio.volume = 0;
-                  gain.gain.value = vol;
-                }
-              });
+              void ctx.resume().catch(() => undefined);
+            }
+            // Only boost path uses WebAudio — avoids silent volume=0 when ctx is suspended
+            if (ctx.state === "running") {
+              const source = ctx.createMediaElementSource(audio);
+              mediaElementSources.add(audio);
+              const gain = ctx.createGain();
+              gain.gain.value = vol;
+              source.connect(gain);
+              gain.connect(ctx.destination);
+              currentGain = gain;
+              audio.volume = 0; // full level via gain node
+              usedWebAudio = true;
             }
           }
         }
       } catch (e) {
-        console.warn("[voice] WebAudio gain unavailable, using element volume", e);
+        console.warn("[voice] WebAudio boost unavailable, using element volume", e);
+        usedWebAudio = false;
+        currentGain = null;
       }
       if (!usedWebAudio) {
         audio.volume = Math.min(1, vol);
       }
 
-      // If decode/play hangs without onended, don't block the coach forever
-      playWatchdog = window.setTimeout(() => {
-        try {
-          audio.pause();
-        } catch {
-          /* ignore */
+      audio.onloadedmetadata = () => {
+        if (settled || generation !== speakGeneration) return;
+        const dur = audio.duration;
+        if (Number.isFinite(dur) && dur > 0) {
+          const ms = Math.ceil((dur / Math.max(0.5, audio.playbackRate)) * 1000) + 2_500;
+          armWatchdog(Math.min(ms, MAX_UTTERANCE_MS));
         }
-        finish(new Error("Audio playback timed out"));
-      }, 10_000);
+      };
 
       audio.onended = () => finish();
       audio.onerror = () => {
@@ -441,11 +478,11 @@ async function playCloudTts(
             finish();
             return;
           }
+          started = true;
           audioUnlocked = true;
           setVoiceError(null);
-          // Prefer element volume if WebAudio context never woke up
-          const ctx = sharedAudioCtx;
-          if (ctx && ctx.state !== "running" && usedWebAudio) {
+          // If we planned boost but ctx isn't running, ensure element is audible
+          if (!usedWebAudio || (sharedAudioCtx && sharedAudioCtx.state !== "running")) {
             audio.volume = Math.min(1, vol);
           }
         })
@@ -731,6 +768,18 @@ export function testVoice(prefs?: Partial<VoicePrefs>) {
       "Coach online. You're four kills, one death, three assists. Base now. One thousand six hundred gold. Don't fight without flash.",
       { interrupt: true, maxChars: 320, prefs }
     );
+  });
+}
+
+/** Short line after setup / first unlock — call only from a user gesture. */
+export function welcomeVoice(prefs?: Partial<VoicePrefs>) {
+  void unlockAudio().then(() => {
+    if (prefs) setVoicePrefs(prefs);
+    speakText("Coach online. I'm with you this game.", {
+      interrupt: true,
+      maxChars: 120,
+      prefs,
+    });
   });
 }
 

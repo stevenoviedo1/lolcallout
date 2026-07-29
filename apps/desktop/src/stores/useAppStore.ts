@@ -70,6 +70,7 @@ import {
   getLastVoiceError,
   getSpeechRecognitionCtor,
   interpretVoiceCommand,
+  isAudioUnlocked,
   onVoiceStatus,
   setVoicePrefs,
   speakText,
@@ -319,6 +320,7 @@ function speakIfEnabled(
     if (kind === "callout") {
       localStorage.setItem("rc_voiceover", "1");
       useAppStore.setState({ voiceOverEnabled: true });
+      // Note: unlock only works from a prior user gesture (Test / Setup / Voice toggle)
       void unlockAudio();
     } else {
       console.info("[voice] skipped — Voice-over is OFF");
@@ -326,6 +328,16 @@ function speakIfEnabled(
     }
   }
   if (!text.trim()) return false;
+
+  // Soft nudge once if audio was never unlocked (autoplay policy)
+  if (!isAudioUnlocked() && kind === "callout") {
+    const already = useAppStore.getState().voiceError;
+    if (!already || !/Test|unlock|blocked/i.test(already)) {
+      useAppStore.setState({
+        voiceError: "Click ▶ Test once so coach voice can play over the game",
+      });
+    }
+  }
 
   const now = Date.now();
   const urgent = opts?.force || (kind === "callout" && isUrgentKind(calloutKind || ""));
@@ -498,6 +510,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     setVoicePrefs(prefs);
     void unlockAudio().then(() => {
       testVoice(prefs);
+      // Cloud TTS often needs 3–6s — don't declare OK too early
+      const checkAt = prefs.engine === "browser" ? 2_000 : 6_500;
       window.setTimeout(() => {
         const err = getLastVoiceError();
         if (err) {
@@ -511,7 +525,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             if (get().toast?.startsWith("Voice OK")) set({ toast: null });
           }, 3500);
         }
-      }, 2500);
+      }, checkAt);
     });
   },
   alwaysListen: false,
