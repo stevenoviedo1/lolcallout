@@ -26,7 +26,9 @@ export const VOICE_VOLUME_MAX = 2.5;
 export const DEFAULT_VOICE_PREFS: VoicePrefs = {
   rate: 0.88,
   pitch: 0.92,
-  volume: 1.4, // a bit loud by default so coach cuts through game audio
+  // 100% HTML element volume is the most reliable path in Electron.
+  // Users can boost past 100% in Settings (decoded AudioBuffer path).
+  volume: 1.0,
   voiceURI: "",
   style: "competitive",
   engine: "xai", // natural by default when API key works
@@ -136,9 +138,6 @@ let speakingSince = 0;
 /** Hard cap so a hung fetch/play can never leave the coach mute forever */
 const MAX_UTTERANCE_MS = 28_000;
 let utteranceWatchdog: number | null = null;
-/** Track MediaElementSources so we never double-connect the same element */
-const mediaElementSources = new WeakSet<HTMLMediaElement>();
-
 /** True while a line is queued or playing */
 export function isVoiceBusy(): boolean {
   // Self-heal: if something hung without clearing the flag, free the coach
@@ -355,158 +354,212 @@ async function playCloudTts(
 
   const url = URL.createObjectURL(blob);
   const vol = clampVoiceVolume(prefs.volume ?? DEFAULT_VOICE_PREFS.volume);
-  // Boost (>100%) needs WebAudio gain; otherwise plain element volume is more reliable
-  const needBoost = vol > 1.01;
+  const rate = Math.min(1.25, Math.max(0.75, (prefs.rate || 0.88) / 0.88));
 
   try {
-    await new Promise<void>((resolve, reject) => {
-      if (generation !== speakGeneration) {
-        URL.revokeObjectURL(url);
-        resolve();
-        return;
-      }
-
-      const audio = new Audio();
-      currentAudio = audio;
-      audio.preload = "auto";
-      audio.crossOrigin = "anonymous";
-      audio.src = url;
-      audio.playbackRate = Math.min(1.25, Math.max(0.75, (prefs.rate || 0.88) / 0.88));
-
-      let usedWebAudio = false;
-      let settled = false;
-      let playWatchdog = 0;
-      let started = false;
-
-      const cleanup = () => {
-        URL.revokeObjectURL(url);
-        if (currentAudio === audio) currentAudio = null;
-        if (currentGain) currentGain = null;
-      };
-
-      const finish = (err?: Error) => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(playWatchdog);
-        cleanup();
-        if (generation !== speakGeneration) resolve();
-        else if (err) reject(err);
-        else resolve();
-      };
-
-      const armWatchdog = (ms: number) => {
-        window.clearTimeout(playWatchdog);
-        playWatchdog = window.setTimeout(() => {
-          // Only treat as failure if we never started, or playback is frozen
-          if (!started || audio.paused) {
-            try {
-              audio.pause();
-            } catch {
-              /* ignore */
-            }
-            finish(new Error("Audio playback timed out"));
-          } else {
-            // Still playing past estimate — extend once, then soft-end
-            try {
-              audio.pause();
-            } catch {
-              /* ignore */
-            }
-            finish();
-          }
-        }, ms);
-      };
-
-      // Initial watchdog: fail if play never starts
-      armWatchdog(8_000);
-
+    // Prefer decodeAudioData when we need boost or when element play fails.
+    // MediaElementSource was silently broken on many Electron builds (volume=0 path).
+    if (vol > 1.01) {
       try {
-        if (needBoost && !mediaElementSources.has(audio)) {
-          const ctx = getAudioContext();
-          if (ctx) {
-            if (ctx.state === "suspended") {
-              void ctx.resume().catch(() => undefined);
-            }
-            // Only boost path uses WebAudio — avoids silent volume=0 when ctx is suspended
-            if (ctx.state === "running") {
-              const source = ctx.createMediaElementSource(audio);
-              mediaElementSources.add(audio);
-              const gain = ctx.createGain();
-              gain.gain.value = vol;
-              source.connect(gain);
-              gain.connect(ctx.destination);
-              currentGain = gain;
-              audio.volume = 0; // full level via gain node
-              usedWebAudio = true;
-            }
-          }
-        }
+        await playDecodedBuffer(blob, vol, rate, generation);
+        return;
       } catch (e) {
-        console.warn("[voice] WebAudio boost unavailable, using element volume", e);
-        usedWebAudio = false;
-        currentGain = null;
+        console.warn("[voice] decoded boost play failed, trying HTMLAudio", e);
       }
-      if (!usedWebAudio) {
-        audio.volume = Math.min(1, vol);
-      }
+    }
 
-      audio.onloadedmetadata = () => {
-        if (settled || generation !== speakGeneration) return;
-        const dur = audio.duration;
-        if (Number.isFinite(dur) && dur > 0) {
-          const ms = Math.ceil((dur / Math.max(0.5, audio.playbackRate)) * 1000) + 2_500;
-          armWatchdog(Math.min(ms, MAX_UTTERANCE_MS));
-        }
-      };
-
-      audio.onended = () => finish();
-      audio.onerror = () => {
-        if (generation !== speakGeneration) finish();
-        else finish(new Error("Audio playback failed"));
-      };
-
-      void audio
-        .play()
-        .then(() => {
-          if (generation !== speakGeneration) {
-            try {
-              audio.pause();
-              audio.src = "";
-            } catch {
-              /* ignore */
-            }
-            finish();
-            return;
-          }
-          started = true;
-          audioUnlocked = true;
-          setVoiceError(null);
-          // If we planned boost but ctx isn't running, ensure element is audible
-          if (!usedWebAudio || (sharedAudioCtx && sharedAudioCtx.state !== "running")) {
-            audio.volume = Math.min(1, vol);
-          }
-        })
-        .catch((err: unknown) => {
-          if (generation !== speakGeneration) {
-            finish();
-            return;
-          }
-          const name = err instanceof Error ? err.name : "";
-          if (name === "NotAllowedError") {
-            finish(
-              new Error(
-                "Browser blocked audio — click ▶ Test once (user gesture unlocks sound)"
-              )
-            );
-          } else {
-            finish(err instanceof Error ? err : new Error("Audio play failed"));
-          }
-        });
-    });
+    await playHtmlAudio(url, Math.min(1, vol), rate, generation);
   } catch (e) {
+    // Last resort: browser TTS is handled by pumpQueue fallback
     URL.revokeObjectURL(url);
     throw e;
+  } finally {
+    // playHtmlAudio revokes on finish; if we used decode path, revoke here
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      /* ignore */
+    }
   }
+}
+
+/** Reliable boost path: decode full buffer + GainNode (no MediaElementSource). */
+async function playDecodedBuffer(
+  blob: Blob,
+  vol: number,
+  rate: number,
+  generation: number
+): Promise<void> {
+  if (generation !== speakGeneration) return;
+  const ctx = getAudioContext();
+  if (!ctx) throw new Error("No AudioContext");
+  if (ctx.state === "suspended") await ctx.resume();
+
+  const ab = await blob.arrayBuffer();
+  if (generation !== speakGeneration) return;
+  // slice copy — decodeAudioData detaches the buffer on some engines
+  const audioBuf = await ctx.decodeAudioData(ab.slice(0));
+  if (generation !== speakGeneration) return;
+
+  await new Promise<void>((resolve, reject) => {
+    if (generation !== speakGeneration) {
+      resolve();
+      return;
+    }
+    const source = ctx.createBufferSource();
+    const gain = ctx.createGain();
+    gain.gain.value = vol;
+    source.buffer = audioBuf;
+    source.playbackRate.value = rate;
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    currentGain = gain;
+
+    let settled = false;
+    const finish = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      currentGain = null;
+      try {
+        source.disconnect();
+        gain.disconnect();
+      } catch {
+        /* ignore */
+      }
+      if (generation !== speakGeneration) resolve();
+      else if (err) reject(err);
+      else resolve();
+    };
+
+    const ms = Math.ceil((audioBuf.duration / Math.max(0.5, rate)) * 1000) + 1500;
+    const watchdog = window.setTimeout(() => finish(), Math.min(ms, MAX_UTTERANCE_MS));
+
+    source.onended = () => {
+      window.clearTimeout(watchdog);
+      audioUnlocked = true;
+      setVoiceError(null);
+      finish();
+    };
+
+    try {
+      source.start(0);
+      audioUnlocked = true;
+      setVoiceError(null);
+    } catch (e) {
+      window.clearTimeout(watchdog);
+      finish(e instanceof Error ? e : new Error("Buffer play failed"));
+    }
+  });
+}
+
+/** Simple HTMLAudioElement path — most reliable in Electron for ≤100% volume. */
+function playHtmlAudio(
+  url: string,
+  volume: number,
+  rate: number,
+  generation: number
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (generation !== speakGeneration) {
+      resolve();
+      return;
+    }
+
+    const audio = new Audio();
+    currentAudio = audio;
+    audio.preload = "auto";
+    // Do NOT set crossOrigin on blob: URLs — breaks playback on some Chromium builds
+    audio.src = url;
+    audio.volume = Math.min(1, Math.max(0.05, volume));
+    audio.playbackRate = rate;
+
+    let settled = false;
+    let started = false;
+    let playWatchdog = 0;
+
+    const cleanup = () => {
+      if (currentAudio === audio) currentAudio = null;
+    };
+
+    const finish = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(playWatchdog);
+      cleanup();
+      if (generation !== speakGeneration) resolve();
+      else if (err) reject(err);
+      else resolve();
+    };
+
+    const armWatchdog = (ms: number) => {
+      window.clearTimeout(playWatchdog);
+      playWatchdog = window.setTimeout(() => {
+        if (!started || audio.paused) {
+          try {
+            audio.pause();
+          } catch {
+            /* ignore */
+          }
+          finish(new Error("Audio playback timed out"));
+        } else {
+          try {
+            audio.pause();
+          } catch {
+            /* ignore */
+          }
+          finish();
+        }
+      }, ms);
+    };
+
+    armWatchdog(8_000);
+
+    audio.onloadedmetadata = () => {
+      if (settled || generation !== speakGeneration) return;
+      const dur = audio.duration;
+      if (Number.isFinite(dur) && dur > 0) {
+        armWatchdog(Math.min(Math.ceil((dur / rate) * 1000) + 2500, MAX_UTTERANCE_MS));
+      }
+    };
+
+    audio.onended = () => finish();
+    audio.onerror = () => {
+      if (generation !== speakGeneration) finish();
+      else finish(new Error("Audio playback failed"));
+    };
+
+    void audio
+      .play()
+      .then(() => {
+        if (generation !== speakGeneration) {
+          try {
+            audio.pause();
+            audio.src = "";
+          } catch {
+            /* ignore */
+          }
+          finish();
+          return;
+        }
+        started = true;
+        audioUnlocked = true;
+        setVoiceError(null);
+      })
+      .catch((err: unknown) => {
+        if (generation !== speakGeneration) {
+          finish();
+          return;
+        }
+        const name = err instanceof Error ? err.name : "";
+        if (name === "NotAllowedError") {
+          finish(
+            new Error("Browser blocked audio — click ▶ Test once (unlocks coach voice)")
+          );
+        } else {
+          finish(err instanceof Error ? err : new Error("Audio play failed"));
+        }
+      });
+  });
 }
 
 function waitForVoices(ms = 800): Promise<SpeechSynthesisVoice[]> {

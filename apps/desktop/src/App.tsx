@@ -143,10 +143,11 @@ export default function App() {
     [context]
   );
   const compact = layout === "compact";
-  const showLive = nav === "live" || compact;
+  const showLive = (nav === "live" || compact) && nav !== "settings";
   const showHome = nav === "home" && !compact;
   const showHistory = nav === "history" && !compact;
-  const showSettings = nav === "settings" && !compact;
+  // Settings always available (even in compact HUD) — users couldn't find it in-game
+  const showSettings = nav === "settings";
 
   const statusLabel =
     agentStatus === "in_game"
@@ -235,16 +236,14 @@ export default function App() {
             />
             <span className="mono vol-chip-pct">{volumePercentLabel(voicePrefs.volume)}</span>
           </label>
-          {!compact && (
-            <button
-              type="button"
-              className="chip"
-              title="Test coach audio"
-              onClick={() => testVoiceOver()}
-            >
-              ▶ Test
-            </button>
-          )}
+          <button
+            type="button"
+            className="chip"
+            title="Test coach audio — click once to unlock voice"
+            onClick={() => testVoiceOver()}
+          >
+            ▶ Test
+          </button>
           <button
             type="button"
             className={`chip ${alwaysListen || listening ? "chip-on" : ""}`}
@@ -260,6 +259,14 @@ export default function App() {
             onClick={() => resetCoachVoice()}
           >
             ⏹
+          </button>
+          <button
+            type="button"
+            className={`chip ${nav === "settings" ? "chip-on" : ""}`}
+            title="Settings — voice, callouts, account"
+            onClick={() => setNav(nav === "settings" ? "live" : "settings")}
+          >
+            ⚙ Settings
           </button>
           <button
             type="button"
