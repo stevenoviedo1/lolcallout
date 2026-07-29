@@ -152,21 +152,21 @@ export function LoginScreen({
         </div>
 
         <p className="login-lead login-lead-tight">
-          Secure account for this app. Same email on any PC you install — no website login
-          required after setup.
+          Your LOLCallout account lives in this app — works worldwide on any PC you install.
+          No website sign-in required.
         </p>
 
         <div className="login-howto" aria-label="Getting started">
-          <p className="login-howto-title">First time here?</p>
+          <p className="login-howto-title">Get started in 30 seconds</p>
           <ol>
             <li>
-              <strong>Create account</strong> with your email + a password
+              <strong>Create account</strong> with any email + a password (letter + number, 8+)
             </li>
             <li>
-              Paid / Founders? Use the <strong>same email</strong> you used on lolcallout.com
+              Already have an account? Use <strong>Sign in</strong> with the same email
             </li>
             <li>
-              Check <strong>Remember me</strong> so you stay signed in on this PC
+              Check <strong>Remember me</strong> to stay signed in on this PC
             </li>
           </ol>
         </div>

@@ -36,6 +36,10 @@ RUN npm run build -w @riftcoach/shared \
 
 ENV NODE_ENV=production
 ENV PORT=8787
+# Mount a Railway volume at /data and set DATA_DIR=/data so accounts persist across deploys.
+# ENV DATA_DIR=/data
+# Restore Pro for product owner if volume is empty / first boot
+ENV BOOTSTRAP_PRO_EMAILS=steven.oviedo1@gmail.com:24
 EXPOSE 8787
 
 CMD ["npm", "run", "start", "-w", "@riftcoach/api"]

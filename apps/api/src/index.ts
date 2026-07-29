@@ -41,6 +41,7 @@ import { authMiddleware, registerAuthRoutes, type AuthedRequest } from "./authRo
 import {
   bootstrapPaidEmails,
   countFoundersSeatsTaken,
+  getAuthStoreInfo,
   publicUser,
   userHasAccess,
 } from "./authStore.js";
@@ -59,7 +60,26 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:5173";
 const CORS_ALLOW_LOCALHOST = process.env.CORS_ALLOW_LOCALHOST === "1";
 
 loadFromDisk();
-// Restore Pro for known emails (local grants don't auto-sync to Railway)
+
+const authStoreInfo = getAuthStoreInfo();
+console.log(
+  `[auth] dataDir=${authStoreInfo.dataDir} writable=${authStoreInfo.writable} ` +
+    `fromEnv=${authStoreInfo.dataDirFromEnv} users=${authStoreInfo.userCount}`
+);
+if (
+  (process.env.NODE_ENV === "production" || process.env.PORT) &&
+  !authStoreInfo.dataDirFromEnv
+) {
+  console.warn(
+    "[auth] WARNING: DATA_DIR is not set. User accounts may be wiped on every deploy. " +
+      "Attach a Railway volume and set DATA_DIR=/data"
+  );
+}
+if (!authStoreInfo.writable) {
+  console.error("[auth] ERROR: account data directory is not writable:", authStoreInfo.dataDir);
+}
+
+// Optional env-only Pro restore (BOOTSTRAP_PRO_EMAILS=a@x.com:24)
 try {
   bootstrapPaidEmails();
 } catch (e) {
@@ -124,6 +144,7 @@ app.use(authMiddleware);
 registerAuthRoutes(app);
 
 app.get("/health", (_req, res) => {
+  const store = getAuthStoreInfo();
   res.json({
     ok: true,
     service: "lolcallout-api",
@@ -132,6 +153,12 @@ app.get("/health", (_req, res) => {
     tts: ttsStatus(),
     stripe: stripeEnabled(),
     auth: true,
+    accounts: {
+      userCount: store.userCount,
+      persistent: store.dataDirFromEnv && store.writable,
+      dataDirConfigured: store.dataDirFromEnv,
+      writable: store.writable,
+    },
     founders: {
       priceUsd: 50,
       interval: "month",

@@ -204,13 +204,20 @@ export function registerAuthRoutes(app: Express) {
   });
 
   /**
-   * Dev-only email-only login. Never available on cloud (requires true loopback).
-   * AUTH_DEV_RETURN_LINK no longer unlocks this — that was insecure.
+   * Dev-only email-only login. Disabled on cloud / production always.
+   * Product accounts use email+password only (worldwide).
    */
   app.post("/v1/auth/desktop-login", (req, res) => {
     try {
-      if (process.env.NODE_ENV === "production" && process.env.ALLOW_DESKTOP_LOGIN !== "1") {
-        return res.status(403).json({ error: "Use email and password to sign in" });
+      if (
+        process.env.NODE_ENV === "production" ||
+        process.env.PORT ||
+        process.env.ALLOW_DESKTOP_LOGIN !== "1"
+      ) {
+        return res.status(403).json({
+          error: "Use Create account or Sign in with email and password",
+          code: "PASSWORD_REQUIRED",
+        });
       }
       const host = String(req.hostname || req.ip || "").toLowerCase();
       const remote = String(req.socket?.remoteAddress || "");

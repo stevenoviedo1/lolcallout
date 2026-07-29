@@ -1,4 +1,11 @@
-import { API_URL, AUTH_API_URL, CLOUD_API_URL, LOCAL_API_URL } from "./config";
+import {
+  accountApiBases,
+  allowLocalAuth,
+  AUTH_API_URL,
+  CLOUD_API_URL,
+  coachApiBases,
+  LOCAL_API_URL,
+} from "./config";
 
 export interface AuthUser {
   id: string;
@@ -67,13 +74,13 @@ function uniqueUrls(...urls: (string | null | undefined)[]): string[] {
   return urls.filter((v, i, a): v is string => Boolean(v) && a.indexOf(v) === i);
 }
 
-/** Prefer the auth server, then coach API, for session checks */
+/** Cloud-only account hosts (product). Local only if engineer override. */
 function authBases(): string[] {
-  return uniqueUrls(AUTH_API_URL, CLOUD_API_URL, API_URL, LOCAL_API_URL);
+  return accountApiBases();
 }
 
 export async function waitForApi(timeoutMs = 15_000): Promise<boolean> {
-  const bases = uniqueUrls(API_URL, AUTH_API_URL, CLOUD_API_URL, LOCAL_API_URL);
+  const bases = coachApiBases();
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     for (const base of bases) {
@@ -97,6 +104,7 @@ export type AuthErrorCode =
   | "RATE_LIMITED"
   | "INVALID_EMAIL"
   | "MISSING_CREDENTIALS"
+  | "PASSWORD_REQUIRED"
   | string;
 
 export type AuthResult = {
@@ -140,13 +148,20 @@ async function postAuth(
   if (!trimmed) return { ok: false, error: "Email required", code: "INVALID_EMAIL" };
   if (!password) return { ok: false, error: "Password required", code: "MISSING_CREDENTIALS" };
 
-  // Prefer cloud account API (shared accounts for every download).
-  // Fall back to local API if cloud is unreachable or not yet upgraded.
-  const bases = uniqueUrls(AUTH_API_URL, CLOUD_API_URL, LOCAL_API_URL);
-  let lastError = "Could not reach sign-in server. Check your internet connection.";
+  // Product: cloud account API only (same worldwide). No local users.json.
+  const bases = authBases();
+  let lastError =
+    "Could not reach LOLCallout account server. Check your internet connection.";
   let lastCode: AuthErrorCode | undefined;
 
   for (const base of bases) {
+    // Never hit loopback for product auth
+    if (
+      !allowLocalAuth() &&
+      /127\.0\.0\.1|localhost/i.test(base)
+    ) {
+      continue;
+    }
     try {
       const res = await fetch(`${base}${path}`, {
         method: "POST",
@@ -161,9 +176,8 @@ async function postAuth(
         expiresAt?: string;
       };
       if (!res.ok) {
-        // 404 = old server without password routes — try next base
         if (res.status === 404) {
-          lastError = "Sign-in server needs an update. Try again later.";
+          lastError = "Account server needs an update. Try again later.";
           continue;
         }
         return {
@@ -185,7 +199,9 @@ async function postAuth(
       };
     } catch (e) {
       lastError =
-        e instanceof Error ? `Could not reach sign-in server: ${e.message}` : lastError;
+        e instanceof Error
+          ? `Could not reach account server: ${e.message}`
+          : lastError;
       lastCode = undefined;
     }
   }
@@ -202,7 +218,7 @@ export async function loginWithPassword(
   return postAuth("/v1/auth/login", email, password, remember);
 }
 
-/** Create account with email + password. */
+/** Create account with email + password (works worldwide on any install). */
 export async function registerWithPassword(
   email: string,
   password: string,
@@ -217,9 +233,10 @@ export async function changePassword(
   newPassword: string,
   remember = true
 ): Promise<AuthResult> {
-  const bases = uniqueUrls(AUTH_API_URL, CLOUD_API_URL, LOCAL_API_URL);
+  const bases = authBases();
   let lastError = "Could not reach account server";
   for (const base of bases) {
+    if (!allowLocalAuth() && /127\.0\.0\.1|localhost/i.test(base)) continue;
     try {
       const res = await fetch(`${base}/v1/auth/change-password`, {
         method: "POST",
@@ -239,7 +256,11 @@ export async function changePassword(
       };
       if (!res.ok) {
         if (res.status === 404) continue;
-        return { ok: false, error: data.error || `Request failed (${res.status})`, code: data.code };
+        return {
+          ok: false,
+          error: data.error || `Request failed (${res.status})`,
+          code: data.code,
+        };
       }
       if (data.token) setStoredToken(data.token);
       return {
@@ -274,11 +295,15 @@ export async function fetchMe(): Promise<AuthUser | null> {
   const t = getStoredToken();
   if (!t) return null;
   for (const base of authBases()) {
+    if (!allowLocalAuth() && /127\.0\.0\.1|localhost/i.test(base)) continue;
     try {
       const res = await fetch(`${base}/v1/auth/me`, {
         headers: { ...authHeaders() },
       });
-      if (res.status === 401) continue;
+      if (res.status === 401) {
+        // Token invalid on this host — try next host, then clear
+        continue;
+      }
       if (!res.ok) continue;
       const data = (await res.json()) as { user: AuthUser };
       return data.user;
@@ -292,6 +317,7 @@ export async function fetchMe(): Promise<AuthUser | null> {
 
 export async function logout(): Promise<void> {
   for (const base of authBases()) {
+    if (!allowLocalAuth() && /127\.0\.0\.1|localhost/i.test(base)) continue;
     try {
       await fetch(`${base}/v1/auth/logout`, {
         method: "POST",
@@ -302,13 +328,12 @@ export async function logout(): Promise<void> {
     }
   }
   setStoredToken(null);
-  // Keep remembered email for convenience; clear only if user opted out
   if (!getRememberMe()) {
     setRememberPreferences({ remember: false });
   }
 }
 
-/** Capture session token from URL hash (legacy magic-link deep link) */
+/** Capture session token from URL hash (Stripe return / rare deep link) */
 export function consumeAuthHash(): string | null {
   const hash = window.location.hash || "";
   const m = hash.match(/auth_token=([^&]+)/);
@@ -324,3 +349,6 @@ export function consumeAuthHash(): string | null {
   }
   return token;
 }
+
+// Re-export for debugging
+export { AUTH_API_URL, CLOUD_API_URL, LOCAL_API_URL };

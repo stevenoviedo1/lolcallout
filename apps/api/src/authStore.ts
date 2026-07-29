@@ -47,6 +47,34 @@ function ensureDir() {
   if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 }
 
+/** Boot diagnostics — Railway must set DATA_DIR to a volume or accounts wipe on redeploy. */
+export function getAuthStoreInfo(): {
+  dataDir: string;
+  usersPath: string;
+  userCount: number;
+  writable: boolean;
+  dataDirFromEnv: boolean;
+} {
+  ensureDir();
+  let writable = false;
+  try {
+    const probe = path.join(dataDir, ".write-probe");
+    fs.writeFileSync(probe, "ok", "utf8");
+    fs.unlinkSync(probe);
+    writable = true;
+  } catch {
+    writable = false;
+  }
+  const users = loadJson<User[]>(usersPath, []);
+  return {
+    dataDir,
+    usersPath,
+    userCount: users.length,
+    writable,
+    dataDirFromEnv: Boolean(process.env.DATA_DIR),
+  };
+}
+
 function loadJson<T>(file: string, fallback: T): T {
   try {
     if (!fs.existsSync(file)) return fallback;
@@ -133,14 +161,13 @@ export async function setUserPassword(email: string, password: string): Promise<
 }
 
 /**
- * Restore Pro/Founders for known emails after cloud restarts or local→cloud migration.
- * BOOTSTRAP_PRO_EMAILS=a@x.com:24,b@y.com:12
- * Default includes product owner so local-only Pro grants aren't lost on Railway.
+ * Restore Pro for emails listed in BOOTSTRAP_PRO_EMAILS (env only).
+ * Format: a@x.com:24,b@y.com:12
+ * Prefer ADMIN_SECRET grants in production once a volume is attached.
  */
 export function bootstrapPaidEmails(): void {
-  const raw =
-    process.env.BOOTSTRAP_PRO_EMAILS ||
-    "steven.oviedo1@gmail.com:24";
+  const raw = (process.env.BOOTSTRAP_PRO_EMAILS || "").trim();
+  if (!raw) return;
   for (const part of raw.split(",").map((s) => s.trim()).filter(Boolean)) {
     const [email, monthsRaw] = part.split(":");
     if (!email || !isValidEmail(email)) continue;

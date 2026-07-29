@@ -279,12 +279,17 @@ async function startBackend() {
     ? path.join(__dirname, "../../..")
     : resourcePath("server");
 
-  // Reuse healthy leftovers instead of crashing with EADDRINUSE
-  const apiHealthy = await httpOk(`http://127.0.0.1:${apiPort}/health`);
-  if (apiHealthy) {
-    console.log(`[boot] reusing local API on :${apiPort}`);
+  // Product accounts + coach live on the cloud API worldwide.
+  // Local API is only for engineers (dev). Packaged builds never use it for auth.
+  if (isDev) {
+    const apiHealthy = await httpOk(`http://127.0.0.1:${apiPort}/health`);
+    if (apiHealthy) {
+      console.log(`[boot] reusing local API on :${apiPort}`);
+    } else {
+      spawnNodeScript(apiEntry, common, "api", serverCwd);
+    }
   } else {
-    spawnNodeScript(apiEntry, common, "api", serverCwd);
+    console.log("[boot] packaged: cloud accounts only — not starting local API");
   }
 
   const agentHealthy = await httpOk(`http://127.0.0.1:${agentPort}/health`);
@@ -352,23 +357,29 @@ function startUiStaticServer(uiDir, preferredPort) {
   return listenPreferPort(staticServer, preferredPort, "127.0.0.1");
 }
 
-/** Optional cloud API (billing / website). Desktop auth + coach use local API. */
+/**
+ * Global account + coach API for every install worldwide.
+ * Auth never uses localhost in packaged product builds.
+ */
 const CLOUD_API =
   process.env.LOL_CLOUD_API_URL ||
+  process.env.VITE_CLOUD_API_URL ||
   "https://lolcallout-production.up.railway.app";
 
 function uiLoadUrl(extraHash) {
-  const { agentPort, uiPort, apiPort } = bootPorts;
-  // Secure accounts + coach live on the cloud account API.
-  // Live Client agent stays on this PC. Local API is still spawned as a helper.
-  const localApi = `http://127.0.0.1:${apiPort}`;
+  const { agentPort, uiPort } = bootPorts;
+  // Accounts + coach → cloud. Live Client agent → this PC only.
   const qs = new URLSearchParams({
     api: CLOUD_API,
     authApi: CLOUD_API,
     cloudApi: CLOUD_API,
-    localApi,
     agent: `http://127.0.0.1:${agentPort}`,
   });
+  // Dev only: expose localApi for engineer tooling
+  if (isDev) {
+    qs.set("localApi", `http://127.0.0.1:${bootPorts.apiPort}`);
+    qs.set("localAuth", "1");
+  }
   let url = `http://127.0.0.1:${uiPort}/?${qs.toString()}`;
   if (extraHash) {
     url += `#${extraHash.replace(/^#/, "")}`;

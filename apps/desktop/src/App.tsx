@@ -15,6 +15,7 @@ import {
   type VoiceStyle,
 } from "./lib/voice";
 import { hpPct, modeFullLabel, modeLabel } from "./lib/modeLabel";
+import { changePassword, isStrongPassword } from "./lib/authApi";
 import { resetCoachVoice, setLayoutPersisted, useAppStore } from "./stores/useAppStore";
 
 export default function App() {
@@ -79,6 +80,11 @@ export default function App() {
   } = useAppStore();
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [pwCurrent, setPwCurrent] = useState("");
+  const [pwNew, setPwNew] = useState("");
+  const [pwNew2, setPwNew2] = useState("");
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwMsg, setPwMsg] = useState<string | null>(null);
 
   useEffect(() => {
     void init();
@@ -609,6 +615,82 @@ export default function App() {
               <p className="muted" style={{ margin: "8px 0 0" }}>
                 Reopen the guided wizard for callouts, voice, and HUD preferences.
               </p>
+            </div>
+
+            <h3 className="settings-sub">Account</h3>
+            <p className="muted" style={{ marginTop: 0 }}>
+              Your account is stored in the cloud — same email/password on every PC. No website
+              login required.
+            </p>
+            <div className="settings-password">
+              <label className="slider-label">
+                Current password
+                <input
+                  className="voice-select"
+                  type="password"
+                  autoComplete="current-password"
+                  value={pwCurrent}
+                  onChange={(e) => setPwCurrent(e.target.value)}
+                  disabled={pwBusy}
+                />
+              </label>
+              <label className="slider-label">
+                New password
+                <input
+                  className="voice-select"
+                  type="password"
+                  autoComplete="new-password"
+                  value={pwNew}
+                  onChange={(e) => setPwNew(e.target.value)}
+                  disabled={pwBusy}
+                  placeholder="8+ chars, letter + number"
+                />
+              </label>
+              <label className="slider-label">
+                Confirm new password
+                <input
+                  className="voice-select"
+                  type="password"
+                  autoComplete="new-password"
+                  value={pwNew2}
+                  onChange={(e) => setPwNew2(e.target.value)}
+                  disabled={pwBusy}
+                />
+              </label>
+              <button
+                type="button"
+                className="chip chip-primary"
+                disabled={pwBusy}
+                onClick={() => {
+                  void (async () => {
+                    setPwMsg(null);
+                    if (!isStrongPassword(pwNew)) {
+                      setPwMsg("New password needs 8+ characters, a letter, and a number.");
+                      return;
+                    }
+                    if (pwNew !== pwNew2) {
+                      setPwMsg("New passwords do not match.");
+                      return;
+                    }
+                    setPwBusy(true);
+                    const res = await changePassword(pwCurrent, pwNew, true);
+                    setPwBusy(false);
+                    if (!res.ok) {
+                      setPwMsg(res.error || "Could not change password");
+                      return;
+                    }
+                    setPwCurrent("");
+                    setPwNew("");
+                    setPwNew2("");
+                    setPwMsg("Password updated. You’re still signed in.");
+                  })();
+                }}
+              >
+                {pwBusy ? "Updating…" : "Change password"}
+              </button>
+              {pwMsg ? (
+                <p className={pwMsg.startsWith("Password updated") ? "muted" : "err"}>{pwMsg}</p>
+              ) : null}
             </div>
 
             <h3 className="settings-sub">Coach</h3>

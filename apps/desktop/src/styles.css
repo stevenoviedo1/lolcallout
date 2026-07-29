@@ -2370,6 +2370,14 @@ button {
   background: rgba(47, 109, 240, 0.08);
 }
 
+.settings-password {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 18px;
+  max-width: 360px;
+}
+
 @media (max-width: 640px) {
   .setup-cards {
     grid-template-columns: 1fr;
