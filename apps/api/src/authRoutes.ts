@@ -458,4 +458,57 @@ export function registerAuthRoutes(app: Express) {
       plan === "founders" ? grantFounders(email, months) : grantPro(email, months);
     res.json({ ok: true, user: publicUser(user) });
   });
+
+  /**
+   * Change password while signed in (Bearer token).
+   */
+  app.post("/v1/auth/change-password", authMiddleware, async (req: AuthedRequest, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Sign in required", code: "SIGN_IN_REQUIRED" });
+      }
+      if (!rateLimitAuth(req, res, "change-password", 8, 15 * 60 * 1000)) return;
+
+      const currentPassword = String(req.body?.currentPassword || "");
+      const newPassword = String(req.body?.newPassword || "");
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({
+          error: "Current and new password required",
+          code: "MISSING_CREDENTIALS",
+        });
+      }
+      if (!isValidPassword(newPassword)) {
+        return res.status(400).json({ error: passwordPolicyMessage(), code: "WEAK_PASSWORD" });
+      }
+
+      const user = getUserByEmail(req.user.email);
+      if (!user?.passwordHash) {
+        return res.status(400).json({
+          error: "No password set — use Create account flow first",
+          code: "NO_PASSWORD",
+        });
+      }
+      const ok = await verifyPassword(currentPassword, user.passwordHash);
+      if (!ok) {
+        return res.status(401).json({
+          error: "Current password is incorrect",
+          code: "INVALID_CREDENTIALS",
+        });
+      }
+
+      const updated = await setUserPassword(user.email, newPassword);
+      // Rotate session: revoke old, issue new
+      if (req.sessionToken) revokeSession(req.sessionToken);
+      const session = createSession(updated, { remember: Boolean(req.body?.remember) });
+      res.json({
+        ok: true,
+        token: session.rawToken,
+        user: publicUser(updated),
+        expiresAt: new Date(session.expiresAt).toISOString(),
+      });
+    } catch (e) {
+      console.error("[auth] change-password", e);
+      res.status(500).json({ error: e instanceof Error ? e.message : "Could not change password" });
+    }
+  });
 }

@@ -132,6 +132,32 @@ export async function setUserPassword(email: string, password: string): Promise<
   return upsertUser(email, { passwordHash });
 }
 
+/**
+ * Restore Pro/Founders for known emails after cloud restarts or local→cloud migration.
+ * BOOTSTRAP_PRO_EMAILS=a@x.com:24,b@y.com:12
+ * Default includes product owner so local-only Pro grants aren't lost on Railway.
+ */
+export function bootstrapPaidEmails(): void {
+  const raw =
+    process.env.BOOTSTRAP_PRO_EMAILS ||
+    "steven.oviedo1@gmail.com:24";
+  for (const part of raw.split(",").map((s) => s.trim()).filter(Boolean)) {
+    const [email, monthsRaw] = part.split(":");
+    if (!email || !isValidEmail(email)) continue;
+    const months = Math.max(1, Math.min(36, Number(monthsRaw) || 12));
+    const existing = getUserByEmail(email);
+    const needs =
+      !existing ||
+      existing.plan === "free" ||
+      !existing.accessUntil ||
+      new Date(existing.accessUntil).getTime() < Date.now();
+    if (needs) {
+      grantPro(email, months);
+      console.log(`[auth] bootstrap Pro ${months}mo → ${normalizeEmail(email)}`);
+    }
+  }
+}
+
 // --- Users ---
 
 export function getUserByEmail(email: string): User | undefined {

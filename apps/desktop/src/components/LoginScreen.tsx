@@ -334,13 +334,18 @@ export function LoginScreen({
         ) : null}
 
         <div className="login-security">
-          <p className="login-security-title">Your account is protected</p>
+          <p className="login-security-title">Can&apos;t get in?</p>
           <ul>
-            <li>Passwords are hashed with scrypt — we never store plain text.</li>
-            <li>Sign-in uses encrypted HTTPS to the LOLCallout account service.</li>
             <li>
-              Remember me keeps a secure session token (not your password) for up to 90 days.
+              <strong>First time on this install?</strong> Use <strong>Create account</strong>{" "}
+              with your email to set a password (Pro/Founders stay on that email).
             </li>
+            <li>
+              If Create says the email already exists, switch to <strong>Sign in</strong> with the
+              password you set.
+            </li>
+            <li>Passwords: 8+ characters, at least one letter and one number.</li>
+            <li>Remember me keeps you signed in on this PC (password is never stored here).</li>
           </ul>
         </div>
 

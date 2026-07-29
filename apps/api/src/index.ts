@@ -38,7 +38,12 @@ import {
   // handleStripeWebhook loaded dynamically in raw route
 } from "./stripe.js";
 import { authMiddleware, registerAuthRoutes, type AuthedRequest } from "./authRoutes.js";
-import { countFoundersSeatsTaken, publicUser, userHasAccess } from "./authStore.js";
+import {
+  bootstrapPaidEmails,
+  countFoundersSeatsTaken,
+  publicUser,
+  userHasAccess,
+} from "./authStore.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 dotenv.config({ path: path.join(root, ".env") });
@@ -54,6 +59,12 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:5173";
 const CORS_ALLOW_LOCALHOST = process.env.CORS_ALLOW_LOCALHOST === "1";
 
 loadFromDisk();
+// Restore Pro for known emails (local grants don't auto-sync to Railway)
+try {
+  bootstrapPaidEmails();
+} catch (e) {
+  console.warn("[auth] bootstrapPaidEmails failed", e);
+}
 
 const app = express();
 const staticCorsOrigins = new Set([

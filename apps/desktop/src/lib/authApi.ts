@@ -211,6 +211,50 @@ export async function registerWithPassword(
   return postAuth("/v1/auth/register", email, password, remember);
 }
 
+/** Change password while signed in. Returns new token. */
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+  remember = true
+): Promise<AuthResult> {
+  const bases = uniqueUrls(AUTH_API_URL, CLOUD_API_URL, LOCAL_API_URL);
+  let lastError = "Could not reach account server";
+  for (const base of bases) {
+    try {
+      const res = await fetch(`${base}/v1/auth/change-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...authHeaders(),
+        },
+        body: JSON.stringify({ currentPassword, newPassword, remember }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+        token?: string;
+        user?: AuthUser;
+        expiresAt?: string;
+      };
+      if (!res.ok) {
+        if (res.status === 404) continue;
+        return { ok: false, error: data.error || `Request failed (${res.status})`, code: data.code };
+      }
+      if (data.token) setStoredToken(data.token);
+      return {
+        ok: true,
+        token: data.token,
+        user: data.user,
+        expiresAt: data.expiresAt,
+      };
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : lastError;
+    }
+  }
+  return { ok: false, error: lastError };
+}
+
 export async function openInBrowser(url: string): Promise<void> {
   try {
     const w = window as Window & {
