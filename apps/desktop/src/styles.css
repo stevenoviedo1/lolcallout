@@ -1353,6 +1353,12 @@ button {
   font-size: 1.75rem;
   letter-spacing: -0.03em;
   color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+.grade-scale {
+  font-size: 11px;
+  margin: 2px 0 6px;
 }
 
 .summary-card ul {

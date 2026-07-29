@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>LOLCallout Sign in</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        width: 1100px;
+        height: 720px;
+        font-family: Inter, system-ui, sans-serif;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(900px 480px at 18% -10%, rgba(91, 157, 255, 0.22), transparent 55%),
+          radial-gradient(700px 400px at 100% 20%, rgba(124, 58, 237, 0.16), transparent 50%),
+          radial-gradient(500px 280px at 50% 100%, rgba(34, 211, 238, 0.06), transparent 50%),
+          #06080f;
+        color: #f0f4ff;
+      }
+      .card {
+        width: 420px;
+        position: relative;
+        overflow: hidden;
+        border-radius: 20px;
+        padding: 30px 26px;
+        border: 1px solid rgba(91, 157, 255, 0.22);
+        background: linear-gradient(165deg, rgba(18, 28, 48, 0.96), rgba(10, 14, 24, 0.98));
+        box-shadow:
+          0 0 0 1px rgba(91, 157, 255, 0.08),
+          0 24px 64px rgba(0, 0, 0, 0.5);
+      }
+      .glow {
+        pointer-events: none;
+        position: absolute;
+        inset: -40% -20% auto;
+        height: 180px;
+        background: radial-gradient(ellipse at 50% 0%, rgba(91, 157, 255, 0.25), transparent 70%);
+      }
+      .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; position: relative; }
+      .brand img {
+        width: 52px; height: 52px; border-radius: 14px;
+        box-shadow: 0 0 24px rgba(91, 157, 255, 0.25);
+      }
+      .eyebrow {
+        font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #22d3ee;
+        margin-bottom: 2px;
+      }
+      h1 { font-size: 1.5rem; letter-spacing: -0.035em; font-weight: 750; }
+      .lead { color: #8b9bb8; font-size: 0.93rem; line-height: 1.55; margin: 0 0 20px; position: relative; }
+      label { display: block; font-size: 12px; color: #8b9bb8; margin-bottom: 12px; position: relative; }
+      input {
+        display: block; width: 100%; margin-top: 6px; padding: 11px 12px; border-radius: 12px;
+        border: 1px solid rgba(91, 157, 255, 0.2); background: rgba(6, 10, 18, 0.65);
+        color: #f0f4ff; font: inherit;
+      }
+      .btn {
+        width: 100%; border: none; border-radius: 12px; padding: 13px;
+        background: linear-gradient(180deg, #6aa4ff, #2f6df0); color: #fff;
+        font-weight: 650; font-size: 14px;
+        box-shadow: 0 8px 24px rgba(47, 109, 240, 0.35);
+      }
+      .trust {
+        list-style: none; margin: 18px 0 0; padding: 12px 14px; border-radius: 12px;
+        border: 1px solid rgba(36, 50, 74, 0.65); background: rgba(255, 255, 255, 0.02);
+        font-size: 12px; color: #8b9bb8; line-height: 1.55;
+      }
+      .trust li { position: relative; padding-left: 14px; }
+      .trust li::before {
+        content: ""; position: absolute; left: 0; top: 0.55em; width: 5px; height: 5px;
+        border-radius: 50%; background: #22d3ee; box-shadow: 0 0 6px rgba(34, 211, 238, 0.6);
+      }
+      .plans {
+        margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(36, 50, 74, 0.65);
+        color: #8b9bb8; font-size: 0.88rem;
+      }
+      .plans p { margin: 6px 0; }
+      .legal { margin-top: 14px; text-align: center; font-size: 11px; color: #5a6a86; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="glow"></div>
+      <div class="brand">
+        <img src="../logo-circle.png" alt="" />
+        <div>
+          <p class="eyebrow">Live AI coach</p>
+          <h1>LOLCallout</h1>
+        </div>
+      </div>
+      <p class="lead">
+        Sign in with a <strong style="color:#eef3ff">magic link</strong> — no password. One-time
+        secure email link, expires in 15 minutes.
+      </p>
+      <label>
+        Email
+        <input type="email" value="you@email.com" readonly />
+      </label>
+      <button class="btn" type="button">Email me a sign-in link</button>
+      <ul class="trust">
+        <li>Live Client only · no injection</li>
+        <li>One coach voice · event-driven callouts</li>
+        <li>Windows companion · second monitor ready</li>
+      </ul>
+      <div class="plans">
+        <p><strong style="color:#eef3ff">Full coach</strong> · everything included · <strong style="color:#eef3ff">$100/mo</strong></p>
+        <p><strong style="color:#eef3ff">Founders:</strong> <strong style="color:#eef3ff">$50/mo</strong> for early seats</p>
+      </div>
+      <p class="legal">Not endorsed by Riot Games · lolcallout.com</p>
+    </div>
+  </body>
+</html>

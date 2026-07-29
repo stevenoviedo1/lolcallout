@@ -20,13 +20,6 @@ Write-Host "==> Copying server bundles" -ForegroundColor Cyan
 Copy-Item "$root\apps\api\dist\*" "$pack\server\api\" -Recurse -Force
 Copy-Item "$root\apps\agent\dist\*" "$pack\server\agent\" -Recurse -Force
 
-New-Item -ItemType Directory -Path "$pack\server\node_modules\@riftcoach\shared" -Force | Out-Null
-New-Item -ItemType Directory -Path "$pack\server\node_modules\@riftcoach\prompts" -Force | Out-Null
-Copy-Item "$root\packages\shared\package.json" "$pack\server\node_modules\@riftcoach\shared\"
-Copy-Item "$root\packages\shared\dist" "$pack\server\node_modules\@riftcoach\shared\dist" -Recurse
-Copy-Item "$root\packages\prompts\package.json" "$pack\server\node_modules\@riftcoach\prompts\"
-Copy-Item "$root\packages\prompts\dist" "$pack\server\node_modules\@riftcoach\prompts\dist" -Recurse
-
 $serverPkg = @'
 {
   "name": "lolcallout-server",
@@ -34,13 +27,13 @@ $serverPkg = @'
   "type": "module",
   "dependencies": {
     "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
+    "dotenv": "^17.4.2",
     "express": "^4.21.2",
-    "openai": "^4.89.0",
-    "stripe": "^17.7.0",
-    "uuid": "^11.1.0",
-    "undici": "^7.8.0",
-    "screenshot-desktop": "^1.15.0"
+    "openai": "^5.23.2",
+    "stripe": "^18.5.0",
+    "uuid": "^13.0.0",
+    "undici": "^8.9.0",
+    "screenshot-desktop": "^1.15.4"
   }
 }
 '@
@@ -50,6 +43,24 @@ Write-Host "==> npm install server deps" -ForegroundColor Cyan
 Push-Location "$pack\server"
 npm install --omit=dev
 Pop-Location
+
+# MUST run AFTER npm install — npm prunes anything not listed in package.json
+# Without these, agent/api crash with ERR_MODULE_NOT_FOUND @riftcoach/shared (Offline)
+function Copy-RiftcoachWorkspacePkg([string]$name) {
+  $srcRoot = Join-Path $root "packages\$name"
+  $dest = Join-Path $pack "server\node_modules\@riftcoach\$name"
+  if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+  New-Item -ItemType Directory -Path $dest -Force | Out-Null
+  Copy-Item (Join-Path $srcRoot "package.json") $dest -Force
+  Copy-Item (Join-Path $srcRoot "dist") (Join-Path $dest "dist") -Recurse -Force
+  # package.json "main"/"exports" expect dist; ensure files exist
+  if (-not (Test-Path (Join-Path $dest "dist\index.js"))) {
+    throw "Missing packages/$name/dist - run build first"
+  }
+}
+Write-Host "==> Bundling @riftcoach/shared + prompts into server node_modules" -ForegroundColor Cyan
+Copy-RiftcoachWorkspacePkg "shared"
+Copy-RiftcoachWorkspacePkg "prompts"
 
 Copy-Item "$root\apps\desktop\dist\*" "$pack\ui\" -Recurse -Force
 # Single brand mark — same as lolcallout.com
@@ -109,7 +120,7 @@ if (Test-Path $unpacked) {
 Push-Location $desktop
 
 # Monorepo hoists electron to root — electron-builder only looks under apps/desktop.
-# Link (or copy) so packaging can resolve electron@33.4.11.
+# Link (or copy) so packaging can resolve electron (matches package.json electronVersion).
 $hoistedElectron = Join-Path $root "node_modules\electron"
 $localNm = Join-Path $desktop "node_modules"
 $localElectron = Join-Path $localNm "electron"
@@ -142,7 +153,7 @@ if (-not $env:CSC_LINK -and -not $env:CSC_NAME -and -not $env:WIN_CSC_LINK) {
 }
 
 # NSIS installer (desktop shortcut + Start Menu) + portable exe
-& node $builderJs --win nsis portable --x64 --config.electronVersion=33.4.11
+& node $builderJs --win nsis portable --x64 --config.electronVersion=39.8.10
 if ($LASTEXITCODE -ne 0) {
   Pop-Location
   throw "electron-builder failed with exit code $LASTEXITCODE"

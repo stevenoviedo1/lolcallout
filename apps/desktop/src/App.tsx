@@ -10,13 +10,12 @@ import {
   VOICE_VOLUME_MAX,
   VOICE_VOLUME_MIN,
   XAI_VOICES,
-  stopSpeaking,
   volumePercentLabel,
   type TtsEngine,
   type VoiceStyle,
 } from "./lib/voice";
 import { hpPct, modeFullLabel, modeLabel } from "./lib/modeLabel";
-import { setLayoutPersisted, useAppStore } from "./stores/useAppStore";
+import { resetCoachVoice, setLayoutPersisted, useAppStore } from "./stores/useAppStore";
 
 export default function App() {
   const {
@@ -116,7 +115,7 @@ export default function App() {
         toggleAlwaysListen();
       } else if (k === "k") {
         e.preventDefault();
-        stopSpeaking();
+        resetCoachVoice();
       } else if (k === "u") {
         e.preventDefault();
         setLayoutPersisted(useAppStore.getState().layout === "full" ? "compact" : "full");
@@ -250,8 +249,8 @@ export default function App() {
           <button
             type="button"
             className="chip icon"
-            title="Stop speech (Ctrl+Shift+K)"
-            onClick={() => stopSpeaking()}
+            title="Stop speech / clear voice busy (Ctrl+Shift+K)"
+            onClick={() => resetCoachVoice()}
           >
             ⏹
           </button>
@@ -524,12 +523,18 @@ export default function App() {
 
             {lastGrade && (
               <div className="summary-card grade-card">
-                <div className="meta">Match grade</div>
+                <div className="meta">
+                  Match grade
+                  {lastGrade.modeLabel ? ` · ${lastGrade.modeLabel}` : ""}
+                </div>
                 <strong className="grade-letter">{lastGrade.letter}</strong>
                 <span className="muted"> {lastGrade.score}/100</span>
+                {lastGrade.scaleNote ? (
+                  <div className="muted grade-scale">{lastGrade.scaleNote}</div>
+                ) : null}
                 <ul>
                   {lastGrade.goals.map((g) => (
-                    <li key={g.id}>
+                    <li key={`${g.id}-${g.label}`}>
                       {g.passed ? "✓" : "✗"} {g.detail}
                     </li>
                   ))}

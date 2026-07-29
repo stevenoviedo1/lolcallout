@@ -196,6 +196,12 @@ export async function fetchGrade(body: {
   earlyDeaths: number;
   goals?: SessionGoal[];
   repeatDeathPattern?: string | null;
+  gameMode?: string;
+  mapName?: string;
+  queueType?: string;
+  gameQueueConfigId?: number;
+  scoreboard?: unknown[];
+  team?: string;
 }): Promise<MatchGrade> {
   const res = await fetch(`${API_URL}/v1/grade`, {
     method: "POST",

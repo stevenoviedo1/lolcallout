@@ -67,7 +67,7 @@ function loadEnvFile(filePath) {
   }
 }
 
-function spawnNodeScript(scriptPath, envExtra, name) {
+function spawnNodeScript(scriptPath, envExtra, name, cwd) {
   const env = {
     ...process.env,
     ...envExtra,
@@ -82,11 +82,18 @@ function spawnNodeScript(scriptPath, envExtra, name) {
     /* ignore */
   }
   const logPath = path.join(logDir, `${name}.log`);
+  // Truncate old crash logs so we can see the latest boot clearly
+  try {
+    fs.writeFileSync(logPath, "");
+  } catch {
+    /* ignore */
+  }
+  // cwd must be the server root (where node_modules/@riftcoach/* lives) so ESM resolves
   const child = spawn(process.execPath, [scriptPath], {
     env,
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
-    cwd: path.dirname(scriptPath),
+    cwd: cwd || path.dirname(scriptPath),
   });
   const append = (chunk) => {
     const line = chunk.toString();
@@ -219,19 +226,24 @@ async function startBackend() {
     NODE_PATH: nodePath,
   };
 
+  // Server root holds node_modules (incl. @riftcoach/* after pack)
+  const serverCwd = isDev
+    ? path.join(__dirname, "../../..")
+    : resourcePath("server");
+
   // Reuse healthy leftovers instead of crashing with EADDRINUSE
   const apiHealthy = await httpOk(`http://127.0.0.1:${apiPort}/health`);
   if (apiHealthy) {
     console.log(`[boot] reusing local API on :${apiPort}`);
   } else {
-    spawnNodeScript(apiEntry, common, "api");
+    spawnNodeScript(apiEntry, common, "api", serverCwd);
   }
 
   const agentHealthy = await httpOk(`http://127.0.0.1:${agentPort}/health`);
   if (agentHealthy) {
     console.log(`[boot] reusing local agent on :${agentPort}`);
   } else {
-    spawnNodeScript(agentEntry, common, "agent");
+    spawnNodeScript(agentEntry, common, "agent", serverCwd);
   }
 
   return bootPorts;

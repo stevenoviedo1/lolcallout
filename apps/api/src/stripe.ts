@@ -209,9 +209,11 @@ export async function handleStripeWebhook(
         const cust =
           typeof invoice.customer === "string" ? invoice.customer : undefined;
         if (cust) upsertUser(email, { stripeCustomerId: cust });
-        // Renew monthly access
-        const metaPlan = (invoice.subscription_details as { metadata?: { plan?: string } } | null)
-          ?.metadata?.plan;
+        // Renew monthly access (Stripe v18+: plan metadata lives on parent.subscription_details)
+        const metaPlan =
+          invoice.parent?.subscription_details?.metadata?.plan ??
+          (invoice as { subscription_details?: { metadata?: { plan?: string } } })
+            .subscription_details?.metadata?.plan;
         const user = getUserByEmail(email);
         const plan =
           metaPlan === "founders" || user?.plan === "founders" ? "founders" : "pro";

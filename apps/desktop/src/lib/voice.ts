@@ -131,10 +131,64 @@ let currentGain: GainNode | null = null;
 /** Browser blocks audio until a user gesture — track unlock */
 let audioUnlocked = false;
 let lastVoiceError: string | null = null;
+/** When the current utterance marked itself busy (for stuck detection) */
+let speakingSince = 0;
+/** Hard cap so a hung fetch/play can never leave the coach mute forever */
+const MAX_UTTERANCE_MS = 14_000;
+let utteranceWatchdog: number | null = null;
 
 /** True while a line is queued or playing */
 export function isVoiceBusy(): boolean {
+  // Self-heal: if something hung without clearing the flag, free the coach
+  if (speaking && speakingSince > 0 && Date.now() - speakingSince > MAX_UTTERANCE_MS + 500) {
+    console.warn("[voice] stuck busy — force clearing");
+    forceClearBusy("Voice stuck — cleared. Click ▶ Test once if still silent.");
+  }
   return speaking || speakQueue.length > 0;
+}
+
+/** How long the current line has been in-flight (0 if idle) */
+export function voiceBusyMs(): number {
+  if (!speaking || !speakingSince) return 0;
+  return Date.now() - speakingSince;
+}
+
+function clearUtteranceWatchdog() {
+  if (utteranceWatchdog != null) {
+    window.clearTimeout(utteranceWatchdog);
+    utteranceWatchdog = null;
+  }
+}
+
+function armUtteranceWatchdog(generation: number) {
+  clearUtteranceWatchdog();
+  utteranceWatchdog = window.setTimeout(() => {
+    if (generation !== speakGeneration) return;
+    console.warn("[voice] utterance watchdog fired — force stop");
+    forceClearBusy(
+      "Voice timed out (no audio finished). Click ▶ Test to unlock, or switch engine to Browser."
+    );
+  }, MAX_UTTERANCE_MS);
+}
+
+/**
+ * Hard reset: clears queue, speaking flag, audio, and generation.
+ * Used by stop, watchdog, and stuck-busy recovery.
+ */
+export function forceClearBusy(errorMsg?: string) {
+  speakGeneration += 1;
+  speakQueue = [];
+  speaking = false;
+  speakingSince = 0;
+  clearUtteranceWatchdog();
+  try {
+    activeTtsAbort?.abort();
+  } catch {
+    /* ignore */
+  }
+  activeTtsAbort = null;
+  hardStopAudioOnly();
+  if (errorMsg) setVoiceError(errorMsg);
 }
 
 export function getSpeakGeneration(): number {
@@ -247,7 +301,8 @@ async function playCloudTts(
   activeTtsAbort?.abort();
   const controller = new AbortController();
   activeTtsAbort = controller;
-  const timer = window.setTimeout(() => controller.abort(), 20_000);
+  // Keep fetch short so "voice busy" doesn't sit silent for ages
+  const timer = window.setTimeout(() => controller.abort(), 12_000);
   let res: Response;
   try {
     res = await fetch(`${API_URL}/v1/tts`, {
@@ -260,6 +315,13 @@ async function playCloudTts(
       }),
       signal: controller.signal,
     });
+  } catch (e) {
+    if (generation !== speakGeneration) return;
+    const name = e instanceof Error ? e.name : "";
+    if (name === "AbortError") {
+      throw new Error("TTS request timed out — check API / network");
+    }
+    throw e instanceof Error ? e : new Error("TTS fetch failed");
   } finally {
     window.clearTimeout(timer);
   }
@@ -297,19 +359,51 @@ async function playCloudTts(
       audio.playbackRate = Math.min(1.25, Math.max(0.75, (prefs.rate || 0.88) / 0.88));
 
       let usedWebAudio = false;
+      let settled = false;
+      let playWatchdog = 0;
+
+      const cleanup = () => {
+        URL.revokeObjectURL(url);
+        if (currentAudio === audio) currentAudio = null;
+        if (currentGain) currentGain = null;
+      };
+
+      const finish = (err?: Error) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(playWatchdog);
+        cleanup();
+        if (generation !== speakGeneration) resolve();
+        else if (err) reject(err);
+        else resolve();
+      };
+
       try {
         const ctx = getAudioContext();
         if (ctx) {
-          if (ctx.state === "suspended") void ctx.resume();
-          const source = ctx.createMediaElementSource(audio);
-          const gain = ctx.createGain();
-          gain.gain.value = vol; // can be > 1 for boost over game audio
-          source.connect(gain);
-          gain.connect(ctx.destination);
-          currentGain = gain;
-          // Route ONLY through WebAudio — prevent dual speaker output
-          audio.volume = 0;
-          usedWebAudio = true;
+          // Must resume before routing or playback is silent forever
+          if (ctx.state === "suspended") {
+            void ctx.resume().catch(() => undefined);
+          }
+          if (ctx.state === "running" || ctx.state === "suspended") {
+            const source = ctx.createMediaElementSource(audio);
+            const gain = ctx.createGain();
+            gain.gain.value = vol; // can be > 1 for boost over game audio
+            source.connect(gain);
+            gain.connect(ctx.destination);
+            currentGain = gain;
+            // Route ONLY through WebAudio when context is live; else keep element vol
+            audio.volume = ctx.state === "running" ? 0 : Math.min(1, vol);
+            usedWebAudio = true;
+            if (ctx.state === "suspended") {
+              void ctx.resume().then(() => {
+                if (currentGain === gain && generation === speakGeneration) {
+                  audio.volume = 0;
+                  gain.gain.value = vol;
+                }
+              });
+            }
+          }
         }
       } catch (e) {
         console.warn("[voice] WebAudio gain unavailable, using element volume", e);
@@ -318,21 +412,20 @@ async function playCloudTts(
         audio.volume = Math.min(1, vol);
       }
 
-      const cleanup = () => {
-        URL.revokeObjectURL(url);
-        if (currentAudio === audio) currentAudio = null;
-        if (currentGain) currentGain = null;
-      };
+      // If decode/play hangs without onended, don't block the coach forever
+      playWatchdog = window.setTimeout(() => {
+        try {
+          audio.pause();
+        } catch {
+          /* ignore */
+        }
+        finish(new Error("Audio playback timed out"));
+      }, 10_000);
 
-      audio.onended = () => {
-        cleanup();
-        resolve();
-      };
+      audio.onended = () => finish();
       audio.onerror = () => {
-        cleanup();
-        // If we were interrupted, treat as soft success
-        if (generation !== speakGeneration) resolve();
-        else reject(new Error("Audio playback failed"));
+        if (generation !== speakGeneration) finish();
+        else finish(new Error("Audio playback failed"));
       };
 
       void audio
@@ -345,28 +438,31 @@ async function playCloudTts(
             } catch {
               /* ignore */
             }
-            cleanup();
-            resolve();
+            finish();
             return;
           }
           audioUnlocked = true;
           setVoiceError(null);
+          // Prefer element volume if WebAudio context never woke up
+          const ctx = sharedAudioCtx;
+          if (ctx && ctx.state !== "running" && usedWebAudio) {
+            audio.volume = Math.min(1, vol);
+          }
         })
         .catch((err: unknown) => {
-          cleanup();
           if (generation !== speakGeneration) {
-            resolve();
+            finish();
             return;
           }
           const name = err instanceof Error ? err.name : "";
           if (name === "NotAllowedError") {
-            reject(
+            finish(
               new Error(
-                "Browser blocked audio — click 🔊 Voice ON or Test voice once, then try again"
+                "Browser blocked audio — click ▶ Test once (user gesture unlocks sound)"
               )
             );
           } else {
-            reject(err instanceof Error ? err : new Error("Audio play failed"));
+            finish(err instanceof Error ? err : new Error("Audio play failed"));
           }
         });
     });
@@ -470,9 +566,11 @@ async function pumpQueue() {
   const next = speakQueue.shift();
   if (!next) return;
   speaking = true;
+  speakingSince = Date.now();
   const generation = speakGeneration;
   const { text, prefs } = next;
   currentPrefs = { ...prefs };
+  armUtteranceWatchdog(generation);
 
   try {
     if (generation !== speakGeneration) return;
@@ -525,7 +623,9 @@ async function pumpQueue() {
   } finally {
     // Only the active generation may clear the busy flag / continue queue
     if (generation === speakGeneration) {
+      clearUtteranceWatchdog();
       speaking = false;
+      speakingSince = 0;
       await new Promise((r) => setTimeout(r, 80));
       if (generation === speakGeneration) void pumpQueue();
     }
@@ -600,6 +700,8 @@ export function stopSpeaking() {
   speakGeneration += 1;
   speakQueue = [];
   speaking = false;
+  speakingSince = 0;
+  clearUtteranceWatchdog();
   try {
     activeTtsAbort?.abort();
   } catch {

@@ -1,6 +1,6 @@
 {
   "name": "@riftcoach/desktop",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "LOLCallout — live AI coach for League of Legends",
   "author": "LOLCallout",
@@ -26,16 +26,16 @@
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "33.4.11",
-    "electron-builder": "25.1.8",
-    "typescript": "^5.8.2",
-    "vite": "^6.2.2"
+    "electron": "39.8.10",
+    "electron-builder": "26.15.3",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.3"
   },
   "build": {
     "appId": "com.lolcallout.app",
     "productName": "LOLCallout",
     "copyright": "Copyright © LOLCallout",
-    "electronVersion": "33.4.11",
+    "electronVersion": "39.8.10",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -71,10 +71,13 @@
       ],
       "icon": "build/icon.ico",
       "artifactName": "LOLCallout-${version}.${ext}",
-      "publisherName": "LOLCallout",
-      "signingHashAlgorithms": ["sha256"],
-      "rfc3161TimeStampServer": "http://timestamp.digicert.com",
-      "signAndEditExecutable": false
+      "signAndEditExecutable": true,
+      "signExecutable": false,
+      "signtoolOptions": {
+        "publisherName": "LOLCallout",
+        "signingHashAlgorithms": ["sha256"],
+        "rfc3161TimeStampServer": "http://timestamp.digicert.com"
+      }
     },
     "portable": {
       "artifactName": "LOLCallout.exe"

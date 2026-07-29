@@ -76,9 +76,15 @@ export function offlineCoachReply(req: ChatRequest, context?: GameContext): stri
       earlyDeaths: context?.deathReport?.early ?? 0,
       goals: req.goals,
       repeatDeathPattern: context?.deathReport?.dominant,
+      gameMode: context?.gameMode,
+      mapName: context?.mapName,
+      queueType: context?.queueType,
+      gameQueueConfigId: context?.gameQueueConfigId,
+      scoreboard: context?.scoreboard,
     });
     return `POST-GAME SUMMARY
-Grade: ${g.letter} (${g.score}/100)
+Grade: ${g.letter} (${g.score}/100) · ${g.modeLabel}
+Scale: ${g.scaleNote}
 Scoreline: ${line}
 Goals:
 ${g.goals.map((x) => `${x.passed ? "PASS" : "FAIL"} — ${x.detail}`).join("\n")}

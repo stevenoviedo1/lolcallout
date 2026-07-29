@@ -13,18 +13,18 @@
     "@riftcoach/prompts": "*",
     "@riftcoach/shared": "*",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
+    "dotenv": "^17.4.2",
     "express": "^4.21.2",
-    "openai": "^4.89.0",
-    "stripe": "^17.7.0",
-    "uuid": "^11.1.0"
+    "openai": "^5.23.2",
+    "stripe": "^18.5.0",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^22.13.10",
-    "tsx": "^4.19.3",
-    "typescript": "^5.8.2"
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=20"

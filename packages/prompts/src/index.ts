@@ -124,7 +124,7 @@ Example: That was low-% into no man advantage — next spawn wave first, wait fo
 
 ### Post-game
 POST-GAME SUMMARY
-Grade: letter (score/100)
+Grade: LoL-style letter S+…D (score/100), mode-aware (ranked / ARAM / Arena / etc.)
 Scoreline: ...
 Learning objectives: pass/fail
 • habit 1 (subtract one low-% / egregious pattern)

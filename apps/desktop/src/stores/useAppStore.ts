@@ -66,6 +66,7 @@ import {
   isVoiceBusy,
   applyLiveVolume,
   clampVoiceVolume,
+  forceClearBusy,
   getLastVoiceError,
   getSpeechRecognitionCtor,
   interpretVoiceCommand,
@@ -208,6 +209,15 @@ let lastSpokenTips: string[] = [];
 let lastSpokenAt = 0;
 /** Hard lock: only one coach voice in flight */
 let coachVoiceLockedUntil = 0;
+
+/** Stop audio + free coach gate so the next tip can speak */
+export function resetCoachVoice(opts?: { error?: string }) {
+  stopSpeaking();
+  if (opts?.error) forceClearBusy(opts.error);
+  coachVoiceLockedUntil = 0;
+  lastSpokenAt = 0;
+  calloutBusy = false;
+}
 /** Champ select lock-in already briefed */
 let lastLockInKey = "";
 /** Sticky learning objective across the match (3-block style) */
@@ -413,13 +423,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   setVoiceOverEnabled: (voiceOverEnabled) => {
     localStorage.setItem("rc_voiceover", voiceOverEnabled ? "1" : "0");
     if (!voiceOverEnabled) {
-      stopSpeaking();
+      resetCoachVoice();
       set({ voiceOverEnabled, voiceError: null });
       return;
     }
     // User gesture: unlock autoplay so death callouts can speak later
     void unlockAudio();
-    set({ voiceOverEnabled: true });
+    // Turning voice on also unsticks a hung busy gate
+    resetCoachVoice();
+    set({ voiceOverEnabled: true, voiceError: null });
     setVoicePrefs(get().voicePrefs);
   },
   voicePrefs: { ...DEFAULT_VOICE_PREFS },
@@ -480,6 +492,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const prefs = get().voicePrefs;
     // Ensure voice-over is on when testing
     localStorage.setItem("rc_voiceover", "1");
+    // Clear any stuck "voice busy" so the test can actually play
+    resetCoachVoice();
     set({ voiceOverEnabled: true, voiceError: null, toast: "Playing test voice…" });
     setVoicePrefs(prefs);
     void unlockAudio().then(() => {
@@ -487,6 +501,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       window.setTimeout(() => {
         const err = getLastVoiceError();
         if (err) {
+          // Don't leave the coach locked after a failed test
+          coachVoiceLockedUntil = 0;
+          calloutBusy = false;
           set({ voiceError: err, toast: err, error: err });
         } else if (get().toast === "Playing test voice…") {
           set({ toast: "Voice OK — you should have heard the coach" });
@@ -592,10 +609,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   init: async () => {
-    // Surface TTS failures in UI
+    // Surface TTS failures in UI and free the speak gate so tips aren't stuck
     onVoiceStatus(({ error }) => {
-      if (error) set({ voiceError: error });
-      else if (get().voiceError) set({ voiceError: null });
+      if (error) {
+        // Failed / stuck audio should not block the next callout
+        coachVoiceLockedUntil = Math.min(coachVoiceLockedUntil, Date.now() + 400);
+        calloutBusy = false;
+        set({ voiceError: error });
+      } else if (get().voiceError) {
+        set({ voiceError: null });
+      }
     });
 
     const callouts = localStorage.getItem("rc_callouts");
@@ -891,9 +914,10 @@ export const useAppStore = create<AppState>((set, get) => ({
             signal.severity === "urgent" ||
             (fromInsight && signal.severity === "warn");
           const gapOk = Date.now() - lastSpokenAt >= MIN_SPEAK_GAP_MS || isUrgent;
-          // One voice: only soft-block non-urgent while audio plays
-          const voiceFree =
-            isUrgent || (Date.now() >= coachVoiceLockedUntil && !isVoiceBusy());
+          // isVoiceBusy() self-heals hung TTS; if still busy only soft-block non-urgent
+          const busy = isVoiceBusy();
+          const locked = Date.now() < coachVoiceLockedUntil;
+          const voiceFree = isUrgent || (!locked && !busy);
 
           // Permanent reject (budget) — mark processed
           if (!willSpeak) {
@@ -909,13 +933,21 @@ export const useAppStore = create<AppState>((set, get) => ({
             });
           } else if (!gapOk || !voiceFree) {
             // Temporary — do NOT mark processed; retry next poll
+            // If lock is stale (no audio in flight), free it so we don't spin forever
+            if (gapOk && locked && !busy && Date.now() > lastSpokenAt + 8_000) {
+              coachVoiceLockedUntil = 0;
+            }
             set({
               coachDebug: {
                 text: fallbackSafePreview(signal),
                 source: "none",
                 kind: signal.kind,
                 latencyMs: 0,
-                error: !gapOk ? "waiting speak gap" : "voice busy — retry",
+                error: !gapOk
+                  ? "waiting speak gap"
+                  : busy
+                    ? "voice busy — retry"
+                    : "voice lock — retry",
               },
             });
           } else {
@@ -1287,6 +1319,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       const dr = get().deathReport;
       let grade: MatchGrade | null = null;
       try {
+        // Prefer mode-native goals for the letter grade (ranked vs ARAM vs Arena).
+        // Session learning goals stay in coach brain; grade uses mode curve + checklist.
         grade = await fetchGrade({
           kills: you?.kills ?? 0,
           deaths: you?.deaths ?? 0,
@@ -1294,8 +1328,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           creeps: you?.creeps ?? 0,
           gameTimeSec: get().context.gameTime || 0,
           earlyDeaths: dr?.early ?? 0,
-          goals: get().goals,
+          // omit goals → API/shared picks mode-native checklist
           repeatDeathPattern: dr?.dominant,
+          gameMode: safeCtx.gameMode,
+          mapName: safeCtx.mapName,
+          queueType: safeCtx.queueType,
+          gameQueueConfigId: safeCtx.gameQueueConfigId,
+          scoreboard: safeCtx.scoreboard,
         });
       } catch {
         /* grade optional */
@@ -1323,7 +1362,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       sessionLearningObjective = lo;
 
       const gradeLine = grade
-        ? `\n\nGRADE ${grade.letter} (${grade.score}/100)\n${grade.goals.map((g) => `${g.passed ? "✓" : "✗"} ${g.detail}`).join("\n")}\nHabits: ${grade.habits.join(" · ")}\n\n${loCard}`
+        ? `\n\nGRADE ${grade.letter} (${grade.score}/100) · ${grade.modeLabel || ""}\n${grade.scaleNote || ""}\n${grade.goals.map((g) => `${g.passed ? "✓" : "✗"} ${g.detail}`).join("\n")}\nHabits: ${grade.habits.join(" · ")}\n\n${loCard}`
         : `\n\n${loCard}`;
       set((s) => ({
         activeSummary: summary,

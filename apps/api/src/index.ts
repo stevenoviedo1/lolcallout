@@ -132,9 +132,13 @@ app.get("/health", (_req, res) => {
   });
 });
 
-/** Grade a finished (or live) performance */
+/** Grade a finished (or live) performance — mode-aware LoL letter scale */
 app.post("/v1/grade", (req, res) => {
   const body = req.body || {};
+  // Empty goals array → let gradeMatch pick mode-native goals
+  const rawGoals = body.goals as SessionGoal[] | undefined;
+  const goals =
+    Array.isArray(rawGoals) && rawGoals.length > 0 ? rawGoals : undefined;
   const grade = gradeMatch({
     kills: Number(body.kills ?? 0),
     deaths: Number(body.deaths ?? 0),
@@ -142,8 +146,14 @@ app.post("/v1/grade", (req, res) => {
     creeps: Number(body.creeps ?? 0),
     gameTimeSec: Number(body.gameTimeSec ?? body.gameTime ?? 0),
     earlyDeaths: Number(body.earlyDeaths ?? 0),
-    goals: (body.goals as SessionGoal[]) || DEFAULT_GOALS,
+    goals,
     repeatDeathPattern: body.repeatDeathPattern || null,
+    gameMode: body.gameMode || body.context?.gameMode,
+    mapName: body.mapName || body.context?.mapName,
+    queueType: body.queueType || body.context?.queueType,
+    gameQueueConfigId: body.gameQueueConfigId ?? body.context?.gameQueueConfigId,
+    scoreboard: body.scoreboard || body.context?.scoreboard,
+    team: body.team,
   });
   res.json({ grade });
 });

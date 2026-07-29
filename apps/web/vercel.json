@@ -30,7 +30,7 @@
       ]
     },
     {
-      "source": "/(logo-circle.png|logo-512.png|logo-mark.svg|favicon-16.png|favicon-32.png|apple-touch-icon.png|hero.jpg)",
+      "source": "/(logo-circle.png|logo-512.png|logo-mark.svg|favicon-16.png|favicon-32.png|apple-touch-icon.png|hero.jpg|app-live.png|app-compact.png|app-login.png)",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=604800, immutable" }
       ]
