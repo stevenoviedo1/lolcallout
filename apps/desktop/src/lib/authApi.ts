@@ -11,6 +11,8 @@ export interface AuthUser {
 }
 
 const TOKEN_KEY = "lc_auth_token";
+const REMEMBER_KEY = "lc_remember_me";
+const REMEMBER_EMAIL_KEY = "lc_remember_email";
 
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -19,6 +21,37 @@ export function getStoredToken(): string | null {
 export function setStoredToken(token: string | null) {
   if (token) localStorage.setItem(TOKEN_KEY, token);
   else localStorage.removeItem(TOKEN_KEY);
+}
+
+/** Professional "Remember me": save email + keep longer session — never store passwords. */
+export function getRememberMe(): boolean {
+  return localStorage.getItem(REMEMBER_KEY) === "1";
+}
+
+export function getRememberedEmail(): string {
+  try {
+    return localStorage.getItem(REMEMBER_EMAIL_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function setRememberPreferences(opts: {
+  remember: boolean;
+  email?: string;
+}) {
+  try {
+    if (opts.remember) {
+      localStorage.setItem(REMEMBER_KEY, "1");
+      const email = (opts.email || "").trim();
+      if (email) localStorage.setItem(REMEMBER_EMAIL_KEY, email);
+    } else {
+      localStorage.removeItem(REMEMBER_KEY);
+      localStorage.removeItem(REMEMBER_EMAIL_KEY);
+    }
+  } catch {
+    /* ignore quota */
+  }
 }
 
 export function authHeaders(): HeadersInit {
@@ -56,37 +89,73 @@ export async function waitForApi(timeoutMs = 15_000): Promise<boolean> {
   return false;
 }
 
+export type AuthErrorCode =
+  | "NO_PASSWORD"
+  | "ACCOUNT_EXISTS"
+  | "WEAK_PASSWORD"
+  | "INVALID_CREDENTIALS"
+  | "RATE_LIMITED"
+  | "INVALID_EMAIL"
+  | "MISSING_CREDENTIALS"
+  | string;
+
 export type AuthResult = {
   ok: boolean;
   error?: string;
+  code?: AuthErrorCode;
   token?: string;
   user?: AuthUser;
   expiresAt?: string;
 };
 
+/** Client-side policy (mirrors API). */
+export function isStrongPassword(password: string): boolean {
+  if (password.length < 8 || password.length > 128) return false;
+  if (!/[A-Za-z]/.test(password)) return false;
+  if (!/[0-9]/.test(password)) return false;
+  return true;
+}
+
+export function passwordStrength(password: string): {
+  score: 0 | 1 | 2 | 3 | 4;
+  label: string;
+} {
+  if (!password) return { score: 0, label: "" };
+  let score = 0;
+  if (password.length >= 8) score += 1;
+  if (password.length >= 12) score += 1;
+  if (/[A-Za-z]/.test(password) && /[0-9]/.test(password)) score += 1;
+  if (/[^A-Za-z0-9]/.test(password)) score += 1;
+  const labels = ["", "Weak", "Fair", "Good", "Strong"] as const;
+  return { score: score as 0 | 1 | 2 | 3 | 4, label: labels[score] };
+}
+
 async function postAuth(
   path: "/v1/auth/login" | "/v1/auth/register",
   email: string,
-  password: string
+  password: string,
+  remember = false
 ): Promise<AuthResult> {
   const trimmed = email.trim();
-  if (!trimmed) return { ok: false, error: "Email required" };
-  if (!password) return { ok: false, error: "Password required" };
+  if (!trimmed) return { ok: false, error: "Email required", code: "INVALID_EMAIL" };
+  if (!password) return { ok: false, error: "Password required", code: "MISSING_CREDENTIALS" };
 
   // Prefer cloud account API (shared accounts for every download).
   // Fall back to local API if cloud is unreachable or not yet upgraded.
   const bases = uniqueUrls(AUTH_API_URL, CLOUD_API_URL, LOCAL_API_URL);
-  let lastError = "Could not reach sign-in server";
+  let lastError = "Could not reach sign-in server. Check your internet connection.";
+  let lastCode: AuthErrorCode | undefined;
 
   for (const base of bases) {
     try {
       const res = await fetch(`${base}${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ email: trimmed, password }),
+        body: JSON.stringify({ email: trimmed, password, remember }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
+        code?: string;
         token?: string;
         user?: AuthUser;
         expiresAt?: string;
@@ -97,12 +166,17 @@ async function postAuth(
           lastError = "Sign-in server needs an update. Try again later.";
           continue;
         }
-        return { ok: false, error: data.error || `Request failed (${res.status})` };
+        return {
+          ok: false,
+          error: data.error || `Request failed (${res.status})`,
+          code: data.code,
+        };
       }
       if (!data.token || !data.user) {
         return { ok: false, error: "Sign-in response incomplete" };
       }
       setStoredToken(data.token);
+      setRememberPreferences({ remember, email: data.user.email || trimmed });
       return {
         ok: true,
         token: data.token,
@@ -112,20 +186,29 @@ async function postAuth(
     } catch (e) {
       lastError =
         e instanceof Error ? `Could not reach sign-in server: ${e.message}` : lastError;
+      lastCode = undefined;
     }
   }
 
-  return { ok: false, error: lastError };
+  return { ok: false, error: lastError, code: lastCode };
 }
 
 /** Sign in with email + password (existing account). */
-export async function loginWithPassword(email: string, password: string): Promise<AuthResult> {
-  return postAuth("/v1/auth/login", email, password);
+export async function loginWithPassword(
+  email: string,
+  password: string,
+  remember = false
+): Promise<AuthResult> {
+  return postAuth("/v1/auth/login", email, password, remember);
 }
 
 /** Create account with email + password. */
-export async function registerWithPassword(email: string, password: string): Promise<AuthResult> {
-  return postAuth("/v1/auth/register", email, password);
+export async function registerWithPassword(
+  email: string,
+  password: string,
+  remember = false
+): Promise<AuthResult> {
+  return postAuth("/v1/auth/register", email, password, remember);
 }
 
 export async function openInBrowser(url: string): Promise<void> {
@@ -175,6 +258,10 @@ export async function logout(): Promise<void> {
     }
   }
   setStoredToken(null);
+  // Keep remembered email for convenience; clear only if user opted out
+  if (!getRememberMe()) {
+    setRememberPreferences({ remember: false });
+  }
 }
 
 /** Capture session token from URL hash (legacy magic-link deep link) */

@@ -1651,39 +1651,48 @@ button {
   color: var(--muted);
   font-size: 0.93rem;
   line-height: 1.55;
-  margin: 0 0 20px;
+  margin: 0 0 16px;
   position: relative;
 }
 
-.login-update-box {
-  position: relative;
-  margin: 0 0 18px;
-  padding: 14px 14px 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(96, 165, 250, 0.4);
-  background:
-    radial-gradient(280px 80px at 0% 0%, rgba(59, 130, 246, 0.16), transparent 70%),
-    rgba(0, 0, 0, 0.25);
-}
-
-.login-update-box p {
-  margin: 0 0 10px;
+.login-lead-tight {
+  margin-bottom: 12px;
   font-size: 0.9rem;
-  color: var(--text);
-  line-height: 1.4;
 }
 
-.login-update-btn {
-  width: 100%;
-  justify-content: center;
-  padding: 10px 14px !important;
-  font-size: 0.95rem !important;
+.login-howto {
+  position: relative;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(91, 157, 255, 0.22);
+  background: rgba(47, 109, 240, 0.08);
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.45;
 }
 
-.login-update-hint {
-  margin: 10px 0 0 !important;
-  font-size: 0.78rem !important;
-  color: var(--faint) !important;
+.login-howto-title {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cyan, #7dd3fc);
+}
+
+.login-howto ol {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.login-howto li {
+  margin: 4px 0;
+}
+
+.login-howto strong {
+  color: var(--text, #e8eefc);
+  font-weight: 650;
 }
 
 .login-security {
@@ -1718,6 +1727,147 @@ button {
   flex-direction: column;
   gap: 12px;
   position: relative;
+}
+
+.login-remember {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 2px 0 4px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text, #e8eefc);
+  cursor: pointer;
+  user-select: none;
+}
+
+.login-remember input[type="checkbox"] {
+  margin-top: 3px;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent, #5b9dff);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.login-remember strong {
+  font-weight: 650;
+  color: var(--text, #e8eefc);
+}
+
+.login-password-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.login-password-row .login-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.login-show-pw {
+  flex-shrink: 0;
+  border-radius: 12px;
+  border: 1px solid rgba(91, 157, 255, 0.22);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted, #9ab);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.login-show-pw:hover:not(:disabled) {
+  color: var(--text, #e8eefc);
+  border-color: rgba(91, 157, 255, 0.4);
+}
+
+.login-strength {
+  font-size: 11.5px;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: -4px;
+}
+
+.login-strength-bar {
+  height: 4px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.login-strength-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: #64748b;
+  transition: width 0.2s ease, background 0.2s ease;
+}
+
+.login-strength-1 .login-strength-bar i {
+  background: #f87171;
+}
+.login-strength-2 .login-strength-bar i {
+  background: #fbbf24;
+}
+.login-strength-3 .login-strength-bar i {
+  background: #34d399;
+}
+.login-strength-4 .login-strength-bar i {
+  background: #22d3ee;
+}
+
+.login-error {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.login-error .err {
+  margin: 0;
+}
+
+.login-error-cta {
+  align-self: flex-start;
+  justify-content: center;
+}
+
+.login-footer-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.login-text-link {
+  border: none;
+  background: none;
+  color: var(--accent, #5b9dff);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 2px;
+  text-decoration: none;
+}
+
+.login-text-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.login-text-link:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.login-footer-dot {
+  color: var(--faint, #556);
+  font-size: 12px;
 }
 
 .login-input {

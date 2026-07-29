@@ -1,6 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  getRememberMe,
+  getRememberedEmail,
+  isStrongPassword,
   loginWithPassword,
+  openInBrowser,
+  passwordStrength,
   registerWithPassword,
   type AuthUser,
 } from "../lib/authApi";
@@ -17,14 +22,21 @@ export function LoginScreen({
 }: {
   onSignedIn?: (user?: AuthUser | null) => void;
 }) {
-  const [mode, setMode] = useState<Mode>("signin");
-  const [email, setEmail] = useState("");
+  const remembered = getRememberedEmail();
+  const [mode, setMode] = useState<Mode>(() => (remembered ? "signin" : "signup"));
+  const [email, setEmail] = useState(() => remembered);
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
-  const [status, setStatus] = useState<"idle" | "busy" | "error">("idle");
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(
+    () => getRememberMe() || Boolean(remembered)
+  );
+  const [status, setStatus] = useState<"idle" | "busy" | "error" | "ok">("idle");
   const [message, setMessage] = useState("");
   const [localVersion, setLocalVersion] = useState("");
   const [updating, setUpdating] = useState(false);
+
+  const strength = useMemo(() => passwordStrength(password), [password]);
 
   useEffect(() => {
     void getAppVersion().then((v) => setLocalVersion(v));
@@ -50,15 +62,33 @@ export function LoginScreen({
     }
   };
 
+  const switchMode = (next: Mode) => {
+    setMode(next);
+    setStatus("idle");
+    setMessage("");
+    setPassword("");
+    setPassword2("");
+    setShowPassword(false);
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatus("busy");
     setMessage("");
 
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !trimmedEmail.includes("@")) {
+      setStatus("error");
+      setMessage("Enter a valid email address.");
+      return;
+    }
+
     if (mode === "signup") {
-      if (password.length < 8) {
+      if (!isStrongPassword(password)) {
         setStatus("error");
-        setMessage("Password must be at least 8 characters.");
+        setMessage(
+          "Password must be at least 8 characters and include a letter and a number."
+        );
         return;
       }
       if (password !== password2) {
@@ -66,31 +96,47 @@ export function LoginScreen({
         setMessage("Passwords do not match.");
         return;
       }
-      const res = await registerWithPassword(email, password);
+      const res = await registerWithPassword(trimmedEmail, password, rememberMe);
       if (!res.ok || !res.user) {
         setStatus("error");
-        setMessage(res.error || "Could not create account");
+        if (res.code === "ACCOUNT_EXISTS") {
+          setMessage(res.error || "Account already exists.");
+          // Soft-steer to sign-in
+          setMode("signin");
+        } else {
+          setMessage(res.error || "Could not create account");
+        }
         return;
       }
+      setStatus("ok");
       onSignedIn?.(res.user);
       return;
     }
 
-    const res = await loginWithPassword(email, password);
-    if (!res.ok || !res.user) {
+    // Sign in
+    if (password.length < 8) {
       setStatus("error");
-      setMessage(res.error || "Could not sign in");
+      setMessage("Enter your password (at least 8 characters).");
       return;
     }
-    onSignedIn?.(res.user);
-  };
 
-  const switchMode = (next: Mode) => {
-    setMode(next);
-    setStatus("idle");
-    setMessage("");
-    setPassword("");
-    setPassword2("");
+    const res = await loginWithPassword(trimmedEmail, password, rememberMe);
+    if (!res.ok || !res.user) {
+      setStatus("error");
+      if (res.code === "NO_PASSWORD") {
+        setMessage(
+          res.error ||
+            "No password on this account yet. Create account with the same email to set one."
+        );
+        setMode("signup");
+        setPassword2("");
+      } else {
+        setMessage(res.error || "Could not sign in");
+      }
+      return;
+    }
+    setStatus("ok");
+    onSignedIn?.(res.user);
   };
 
   return (
@@ -100,27 +146,29 @@ export function LoginScreen({
         <div className="login-brand">
           <img src="/logo-circle.png" alt="LOLCallout" width={52} height={52} />
           <div>
-            <p className="login-eyebrow">Live AI coach</p>
+            <p className="login-eyebrow">Live AI League coach</p>
             <h1>LOLCallout</h1>
           </div>
         </div>
 
-        <div className="login-update-box">
-          <p>
-            <strong>Need the newest build?</strong>
-            {localVersion ? <span className="muted"> You’re on v{localVersion}.</span> : null}
-          </p>
-          <button
-            type="button"
-            className="chip chip-primary login-update-btn"
-            disabled={updating}
-            onClick={() => void openLatest()}
-          >
-            {updating ? "Opening…" : "Get latest update"}
-          </button>
-          <p className="muted login-update-hint">
-            Installer from our official GitHub release.
-          </p>
+        <p className="login-lead login-lead-tight">
+          Secure account for this app. Same email on any PC you install — no website login
+          required after setup.
+        </p>
+
+        <div className="login-howto" aria-label="Getting started">
+          <p className="login-howto-title">First time here?</p>
+          <ol>
+            <li>
+              <strong>Create account</strong> with your email + a password
+            </li>
+            <li>
+              Paid / Founders? Use the <strong>same email</strong> you used on lolcallout.com
+            </li>
+            <li>
+              Check <strong>Remember me</strong> so you stay signed in on this PC
+            </li>
+          </ol>
         </div>
 
         <div className="login-mode-tabs" role="tablist" aria-label="Account">
@@ -146,46 +194,84 @@ export function LoginScreen({
 
         <p className="login-lead">
           {mode === "signin"
-            ? "Sign in with your LOLCallout email and password."
-            : "Create a secure account — email + password. Works on any PC you install on."}
+            ? "Welcome back — enter the email and password for this app."
+            : "Create your secure login. If you already subscribed, use that email so Pro/Founders stays linked."}
         </p>
 
-        <form onSubmit={(e) => void submit(e)} className="login-form">
+        <form onSubmit={(e) => void submit(e)} className="login-form" autoComplete="on">
           <label className="slider-label">
             Email
             <input
               className="voice-select login-input"
               type="email"
               required
-              autoComplete="email"
+              autoComplete="username email"
+              inputMode="email"
+              spellCheck={false}
               placeholder="you@email.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={status === "busy"}
+              autoFocus={!remembered}
             />
           </label>
+
           <label className="slider-label">
             Password
-            <input
-              className="voice-select login-input"
-              type="password"
-              required
-              minLength={8}
-              autoComplete={mode === "signup" ? "new-password" : "current-password"}
-              placeholder={mode === "signup" ? "At least 8 characters" : "Your password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={status === "busy"}
-            />
+            <div className="login-password-row">
+              <input
+                className="voice-select login-input"
+                type={showPassword ? "text" : "password"}
+                required
+                minLength={8}
+                maxLength={128}
+                autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                placeholder={
+                  mode === "signup" ? "8+ chars, letter + number" : "Your password"
+                }
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={status === "busy"}
+              />
+              <button
+                type="button"
+                className="login-show-pw"
+                onClick={() => setShowPassword((v) => !v)}
+                disabled={status === "busy"}
+                aria-pressed={showPassword}
+                title={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
           </label>
+
+          {mode === "signup" && password ? (
+            <div
+              className={`login-strength login-strength-${strength.score}`}
+              aria-live="polite"
+            >
+              <div className="login-strength-bar" aria-hidden>
+                <i style={{ width: `${(strength.score / 4) * 100}%` }} />
+              </div>
+              <span>
+                Strength: <strong>{strength.label || "…"}</strong>
+                {!isStrongPassword(password) ? (
+                  <span className="muted"> — need letter + number, 8+ chars</span>
+                ) : null}
+              </span>
+            </div>
+          ) : null}
+
           {mode === "signup" ? (
             <label className="slider-label">
               Confirm password
               <input
                 className="voice-select login-input"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 required
                 minLength={8}
+                maxLength={128}
                 autoComplete="new-password"
                 placeholder="Repeat password"
                 value={password2}
@@ -194,42 +280,93 @@ export function LoginScreen({
               />
             </label>
           ) : null}
+
+          <label className="login-remember">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              disabled={status === "busy"}
+            />
+            <span>
+              <strong>Remember me</strong>
+              <span className="muted">
+                {" "}
+                — stay signed in on this device and save my email. Your password is never
+                stored in the app.
+              </span>
+            </span>
+          </label>
+
           <button className="send login-btn" type="submit" disabled={status === "busy"}>
             {status === "busy"
               ? mode === "signup"
-                ? "Creating…"
+                ? "Creating account…"
                 : "Signing in…"
               : mode === "signup"
-                ? "Create account"
-                : "Sign in"}
+                ? "Create secure account"
+                : "Sign in securely"}
           </button>
         </form>
 
-        {status === "error" && message ? <p className="err">{message}</p> : null}
+        {status === "error" && message ? (
+          <div className="login-error" role="alert">
+            <p className="err">{message}</p>
+            {/no password|create account/i.test(message) ? (
+              <button
+                type="button"
+                className="chip chip-primary login-error-cta"
+                onClick={() => switchMode("signup")}
+              >
+                Create account with this email
+              </button>
+            ) : null}
+            {/already exists|sign in instead/i.test(message) ? (
+              <button
+                type="button"
+                className="chip chip-primary login-error-cta"
+                onClick={() => switchMode("signin")}
+              >
+                Go to Sign in
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="login-security">
-          <p className="login-security-title">Secure account</p>
+          <p className="login-security-title">Your account is protected</p>
           <ul>
-            <li>Password is hashed on our servers (scrypt). We never store plain text.</li>
-            <li>Same login works on every PC you download LOLCallout to.</li>
-            <li>Use the same email you use for Founders / Pro on lolcallout.com.</li>
+            <li>Passwords are hashed with scrypt — we never store plain text.</li>
+            <li>Sign-in uses encrypted HTTPS to the LOLCallout account service.</li>
+            <li>
+              Remember me keeps a secure session token (not your password) for up to 90 days.
+            </li>
           </ul>
         </div>
 
-        <ul className="login-trust">
-          <li>Live Client only · no injection</li>
-          <li>One coach voice · second monitor ready</li>
-          <li>Email + password · your account</li>
-        </ul>
-
-        <div className="login-plans">
-          <p>
-            <strong>Full coach</strong> · everything included · <strong>$100/mo</strong>
-          </p>
-          <p>
-            <strong>Founders (first 100):</strong> <strong>$50/mo</strong> for 6 months from
-            activate
-          </p>
+        <div className="login-footer-links">
+          <button
+            type="button"
+            className="login-text-link"
+            onClick={() => void openInBrowser("https://lolcallout.com")}
+          >
+            lolcallout.com
+          </button>
+          <span className="login-footer-dot" aria-hidden>
+            ·
+          </span>
+          <button
+            type="button"
+            className="login-text-link"
+            disabled={updating}
+            onClick={() => void openLatest()}
+          >
+            {updating
+              ? "Opening…"
+              : localVersion
+                ? `Update (v${localVersion})`
+                : "Get latest update"}
+          </button>
         </div>
 
         <p className="legal login-legal">Not endorsed by Riot Games · lolcallout.com</p>

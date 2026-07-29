@@ -77,8 +77,20 @@ export function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
+/**
+ * Professional password rules (client + server):
+ * 8–128 chars, at least one letter and one number. No plain-text storage.
+ */
 export function isValidPassword(password: string): boolean {
-  return typeof password === "string" && password.length >= 8 && password.length <= 128;
+  if (typeof password !== "string") return false;
+  if (password.length < 8 || password.length > 128) return false;
+  if (!/[A-Za-z]/.test(password)) return false;
+  if (!/[0-9]/.test(password)) return false;
+  return true;
+}
+
+export function passwordPolicyMessage(): string {
+  return "Password must be 8–128 characters and include at least one letter and one number.";
 }
 
 // --- Password hashing (Node crypto scrypt — no extra deps) ---
@@ -254,7 +266,6 @@ export function publicUser(user: User) {
 // --- Magic links ---
 
 const LINK_TTL_MS = 15 * 60 * 1000; // 15 min
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 export function createMagicLink(email: string): { rawToken: string; expiresAt: number } {
   const e = normalizeEmail(email);
@@ -286,10 +297,18 @@ export function consumeMagicLink(rawToken: string): string | null {
 
 // --- Sessions ---
 
-export function createSession(user: User): { rawToken: string; expiresAt: number } {
+/** Default signed-in session: 14 days. Remember me: 90 days. */
+const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+const SESSION_REMEMBER_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+export function createSession(
+  user: User,
+  opts?: { remember?: boolean }
+): { rawToken: string; expiresAt: number } {
   const rawToken = crypto.randomBytes(32).toString("base64url");
   const sessions = loadJson<Session[]>(sessionsPath, []).filter((s) => s.expiresAt > Date.now());
-  const expiresAt = Date.now() + SESSION_TTL_MS;
+  const ttl = opts?.remember ? SESSION_REMEMBER_TTL_MS : SESSION_TTL_MS;
+  const expiresAt = Date.now() + ttl;
   sessions.push({
     tokenHash: hash(rawToken),
     userId: user.id,

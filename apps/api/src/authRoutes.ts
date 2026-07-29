@@ -9,6 +9,7 @@ import {
   grantPro,
   isValidEmail,
   isValidPassword,
+  passwordPolicyMessage,
   publicUser,
   revokeSession,
   setUserPassword,
@@ -21,6 +22,43 @@ import {
 import { sendMagicLinkEmail } from "./email.js";
 
 export type AuthedRequest = Request & { user?: User; sessionToken?: string };
+
+/** Simple in-memory rate limit (per process) — slows credential stuffing. */
+const authAttempts = new Map<string, { count: number; resetAt: number }>();
+
+function clientKey(req: Request): string {
+  const xf = String(req.headers["x-forwarded-for"] || "")
+    .split(",")[0]
+    .trim();
+  return xf || String(req.socket?.remoteAddress || req.ip || "unknown");
+}
+
+function rateLimitAuth(
+  req: Request,
+  res: Response,
+  bucket: string,
+  max: number,
+  windowMs: number
+): boolean {
+  const key = `${bucket}:${clientKey(req)}`;
+  const now = Date.now();
+  let row = authAttempts.get(key);
+  if (!row || row.resetAt <= now) {
+    row = { count: 0, resetAt: now + windowMs };
+    authAttempts.set(key, row);
+  }
+  row.count += 1;
+  if (row.count > max) {
+    const retrySec = Math.max(1, Math.ceil((row.resetAt - now) / 1000));
+    res.setHeader("Retry-After", String(retrySec));
+    res.status(429).json({
+      error: `Too many attempts. Try again in ${retrySec}s.`,
+      code: "RATE_LIMITED",
+    });
+    return false;
+  }
+  return true;
+}
 
 function extractToken(req: Request): string | undefined {
   const h = req.headers.authorization;
@@ -73,24 +111,31 @@ export function registerAuthRoutes(app: Express) {
    */
   app.post("/v1/auth/register", async (req, res) => {
     try {
+      if (!rateLimitAuth(req, res, "register", 8, 15 * 60 * 1000)) return;
+
       const email = String(req.body?.email || "").trim();
       const password = String(req.body?.password || "");
+      const remember = Boolean(req.body?.remember);
       if (!isValidEmail(email)) {
-        return res.status(400).json({ error: "Valid email required" });
+        return res.status(400).json({ error: "Enter a valid email address.", code: "INVALID_EMAIL" });
       }
+      // Enforce policy only on create / set-password (existing weak hashes still sign in)
       if (!isValidPassword(password)) {
-        return res.status(400).json({ error: "Password must be 8–128 characters" });
+        return res.status(400).json({ error: passwordPolicyMessage(), code: "WEAK_PASSWORD" });
       }
 
       const existing = getUserByEmail(email);
       if (existing?.passwordHash) {
-        return res.status(409).json({ error: "An account with this email already exists. Sign in instead." });
+        return res.status(409).json({
+          error: "An account with this email already exists. Sign in instead.",
+          code: "ACCOUNT_EXISTS",
+        });
       }
 
-      // New user, or legacy magic-link-only user setting a password for the first time
+      // New user, or paid/magic-link user setting a password for the first time
       const user = await setUserPassword(email, password);
       touchLogin(user.id);
-      const session = createSession(user);
+      const session = createSession(user, { remember });
       res.status(201).json({
         ok: true,
         token: session.rawToken,
@@ -108,28 +153,44 @@ export function registerAuthRoutes(app: Express) {
    */
   app.post("/v1/auth/login", async (req, res) => {
     try {
+      if (!rateLimitAuth(req, res, "login", 20, 15 * 60 * 1000)) return;
+
       const email = String(req.body?.email || "").trim();
       const password = String(req.body?.password || "");
+      const remember = Boolean(req.body?.remember);
       if (!isValidEmail(email) || !password) {
-        return res.status(400).json({ error: "Email and password required" });
+        return res.status(400).json({
+          error: "Email and password required",
+          code: "MISSING_CREDENTIALS",
+        });
       }
 
       const user = getUserByEmail(email);
       if (!user?.passwordHash) {
+        // Helpful for paid / waitlist emails that never set a password
+        if (user) {
+          return res.status(401).json({
+            error:
+              "No password on this account yet. Use Create account with the same email to set one — your plan stays linked.",
+            code: "NO_PASSWORD",
+          });
+        }
         return res.status(401).json({
-          error: user
-            ? "This account has no password yet. Create an account with this email to set one, or use Sign up."
-            : "Invalid email or password",
+          error: "Invalid email or password",
+          code: "INVALID_CREDENTIALS",
         });
       }
 
       const ok = await verifyPassword(password, user.passwordHash);
       if (!ok) {
-        return res.status(401).json({ error: "Invalid email or password" });
+        return res.status(401).json({
+          error: "Invalid email or password",
+          code: "INVALID_CREDENTIALS",
+        });
       }
 
       touchLogin(user.id);
-      const session = createSession(user);
+      const session = createSession(user, { remember });
       res.json({
         ok: true,
         token: session.rawToken,
