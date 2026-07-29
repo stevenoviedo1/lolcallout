@@ -251,6 +251,11 @@ export function hpPercent(you: ActiveYou | null | undefined): number | null {
 
 export { toSpeakable } from "./speakable.js";
 export {
+  CHAMPION_BY_ID,
+  championNameFromId,
+  resolveChampionLabel,
+} from "./championIds.js";
+export {
   DEFAULT_GOALS,
   goalsForMode,
   gradeMatch,

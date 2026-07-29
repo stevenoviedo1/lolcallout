@@ -498,9 +498,24 @@ async function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, "preload.cjs"),
+      // Critical: live callouts must play without a click every time
       autoplayPolicy: "no-user-gesture-required",
+      backgroundThrottling: false,
     },
   });
+
+  // Extra belt-and-suspenders for Chromium audio (some builds ignore webPreferences flag alone)
+  try {
+    mainWindow.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
+      if (permission === "media" || permission === "mediaKeySystem") {
+        callback(true);
+        return;
+      }
+      callback(true);
+    });
+  } catch {
+    /* ignore older electron */
+  }
 
   // Compact second-monitor mode can re-enable always-on-top from UI later if needed
   mainWindow.on("close", () => saveWindowBounds());

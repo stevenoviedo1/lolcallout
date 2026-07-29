@@ -3,6 +3,8 @@
  * Extensible map — unknown champs still get role-generic forecast.
  */
 
+import { championNameFromId, resolveChampionLabel } from "./championIds.js";
+
 export interface ChampKit {
   name: string;
   role: string;
@@ -427,10 +429,12 @@ export function normalizeChampKey(name: string): string {
 
 export function getChampKit(nameOrId: string | undefined): ChampKit | null {
   if (!nameOrId) return null;
-  const key = normalizeChampKey(nameOrId);
+  const resolved = resolveChampionLabel(nameOrId);
+  const key = normalizeChampKey(resolved);
   if (CHAMP_KITS[key]) return CHAMP_KITS[key];
-  // numeric id — unknown without full map
-  if (/^\d+$/.test(nameOrId)) return null;
+  // Try raw key (AurelionSol style)
+  const rawKey = normalizeChampKey(nameOrId);
+  if (CHAMP_KITS[rawKey]) return CHAMP_KITS[rawKey];
   return null;
 }
 
@@ -451,12 +455,17 @@ export function buildLockInBrief(opts: {
   speak: string;
   aiPrompt: string;
 } {
-  const name =
-    opts.myChampion ||
-    (opts.myChampionId ? `Champion ${opts.myChampionId}` : "Your champion");
-  const kit = getChampKit(opts.myChampion || "") || getChampKit(String(opts.myChampionId || ""));
+  const name = resolveChampionLabel(
+    opts.myChampion || opts.myChampionId || "Your champion"
+  );
+  const kit =
+    getChampKit(opts.myChampion || "") ||
+    getChampKit(String(opts.myChampionId || "")) ||
+    getChampKit(name);
   const pos = opts.position || kit?.role || "your role";
-  const enemies = (opts.enemies || []).filter(Boolean);
+  const enemies = (opts.enemies || [])
+    .filter(Boolean)
+    .map((e) => resolveChampionLabel(e));
   const enemyKits = enemies.map((e) => getChampKit(e)).filter(Boolean) as ChampKit[];
 
   const combos = kit?.combos?.length
@@ -509,7 +518,7 @@ export function buildLockInBrief(opts: {
   const aiPrompt = [
     "CHAMP LOCK-IN / PRE-MATCH BRIEF — user just locked.",
     `My champ: ${name} | Position: ${pos}`,
-    `Allies: ${(opts.allies || []).join(", ") || "unknown"}`,
+    `Allies: ${(opts.allies || []).map((a) => resolveChampionLabel(a)).join(", ") || "unknown"}`,
     `Enemies: ${enemies.join(", ") || "unknown/still picking"}`,
     kit ? `Kit identity: ${kit.identity}` : "",
     kit ? `Known combos:\n${combos.map((c) => `- ${c}`).join("\n")}` : "",

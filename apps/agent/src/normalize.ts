@@ -1,4 +1,5 @@
 import type { ActiveYou, GameContext, GameEvent, GameMode, PlayerScoreline } from "@riftcoach/shared";
+import { resolveChampionLabel } from "@riftcoach/shared";
 
 /** Best-effort mapping from Live Client allgamedata → GameContext */
 export function normalizeAllGameData(
@@ -14,9 +15,8 @@ export function normalizeAllGameData(
   const queueType = String(
     stats.queueType ?? stats.gameQueueType ?? data?.queueType ?? data?.gameQueueType ?? ""
   );
-  const gameQueueConfigId = Number(
-    stats.gameQueueConfigId ?? data?.gameQueueConfigId ?? stats.queueId ?? 0
-  ) || undefined;
+  const gameQueueConfigId =
+    Number(stats.gameQueueConfigId ?? data?.gameQueueConfigId ?? stats.queueId ?? 0) || undefined;
 
   const active = data?.activePlayer ?? {};
   const scores = active?.scores ?? {};
@@ -25,7 +25,7 @@ export function normalizeAllGameData(
   const allPlayers: any[] = data?.allPlayers ?? data?.playerList ?? [];
   const scoreboard: PlayerScoreline[] = allPlayers.map((p) => ({
     riotIdGameName: p.riotIdGameName ?? p.summonerName,
-    championName: String(p.championName ?? "Unknown"),
+    championName: resolveChampionLabel(p.championName ?? p.rawChampionName ?? "Unknown"),
     team: p.team === "ORDER" || p.team === "CHAOS" ? p.team : "UNKNOWN",
     level: Number(p.level ?? 1),
     kills: Number(p.scores?.kills ?? 0),
@@ -42,43 +42,48 @@ export function normalizeAllGameData(
       : [],
   }));
 
-  let you: ActiveYou | null = active?.championName
-    ? {
-        championName: String(active.championName),
-        level: Number(active.level ?? 1),
-        currentGold: Number(active.currentGold ?? 0),
-        kills: Number(scores.kills ?? 0),
-        deaths: Number(scores.deaths ?? 0),
-        assists: Number(scores.assists ?? 0),
-        creeps: Number(scores.creepScore ?? scores.creeps ?? 0),
-        currentHealth: num(champStats.currentHealth),
-        maxHealth: num(champStats.maxHealth),
-        currentMana: num(champStats.resourceValue ?? champStats.currentMana),
-        maxMana: num(champStats.resourceMax ?? champStats.maxMana),
-        summonerSpells: extractSpells(active),
-        items: extractItems(active),
-        isDead: Boolean(active.isDead ?? champStats.currentHealth === 0),
-      }
-    : null;
+  // Live Client often omits championName on activePlayer (Riot client change).
+  // Prefer allPlayers match by identity, then fall back to active fields.
+  const match = findLocalPlayer(allPlayers, active, activePlayerName);
+  let you: ActiveYou | null = null;
 
-  // Fallback: some modes omit activePlayer object — resolve via name + allPlayers
-  if (!you && allPlayers.length) {
-    const name = (activePlayerName || active?.summonerName || active?.riotIdGameName || "")
-      .toString()
-      .toLowerCase();
-    const match =
-      (name &&
-        allPlayers.find(
-          (p) =>
-            String(p.riotIdGameName || "").toLowerCase() === name ||
-            String(p.summonerName || "").toLowerCase() === name
-        )) ||
-      allPlayers.find((p) => p.isLocalPlayer === true) ||
-      null;
+  if (match) {
+    you = playerToYou(match, active);
+  } else if (active?.championName || active?.rawChampionName) {
+    you = {
+      championName: resolveChampionLabel(active.championName ?? active.rawChampionName),
+      level: Number(active.level ?? 1),
+      currentGold: Number(active.currentGold ?? 0),
+      kills: Number(scores.kills ?? 0),
+      deaths: Number(scores.deaths ?? 0),
+      assists: Number(scores.assists ?? 0),
+      creeps: Number(scores.creepScore ?? scores.creeps ?? 0),
+      currentHealth: num(champStats.currentHealth),
+      maxHealth: num(champStats.maxHealth),
+      currentMana: num(champStats.resourceValue ?? champStats.currentMana),
+      maxMana: num(champStats.resourceMax ?? champStats.maxMana),
+      summonerSpells: extractSpells(active),
+      items: extractItems(active),
+      isDead: Boolean(active.isDead ?? champStats.currentHealth === 0),
+    };
+  }
 
-    if (match) {
-      you = playerToYou(match, active);
+  // Merge live gold/HP from activePlayer onto matched you
+  if (you && active && Object.keys(active).length) {
+    if (active.currentGold != null) you.currentGold = Number(active.currentGold) || you.currentGold;
+    if (active.level != null) you.level = Number(active.level) || you.level;
+    if (champStats.currentHealth != null) you.currentHealth = num(champStats.currentHealth);
+    if (champStats.maxHealth != null) you.maxHealth = num(champStats.maxHealth);
+    if (champStats.resourceValue != null || champStats.currentMana != null) {
+      you.currentMana = num(champStats.resourceValue ?? champStats.currentMana);
     }
+    if (champStats.resourceMax != null || champStats.maxMana != null) {
+      you.maxMana = num(champStats.resourceMax ?? champStats.maxMana);
+    }
+    const items = extractItems(active);
+    if (items.length) you.items = items;
+    const spells = extractSpells(active);
+    if (spells.length) you.summonerSpells = spells;
   }
 
   const eventsRaw: any[] = data?.events?.Events ?? data?.events ?? [];
@@ -104,10 +109,54 @@ export function normalizeAllGameData(
   };
 }
 
+/** Match local player across Riot ID formats (name, name#tag, riotId). */
+function findLocalPlayer(
+  allPlayers: any[],
+  active: any,
+  activePlayerName?: string | null
+): any | null {
+  if (!allPlayers.length) return null;
+
+  const candidates = [
+    activePlayerName,
+    active?.riotId,
+    active?.summonerName,
+    active?.riotIdGameName,
+    activePlayerName ? String(activePlayerName).split("#")[0] : "",
+    active?.riotId ? String(active.riotId).split("#")[0] : "",
+    active?.summonerName ? String(active.summonerName).split("#")[0] : "",
+  ]
+    .map((s) => String(s || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  for (const p of allPlayers) {
+    if (p.isLocalPlayer === true) return p;
+  }
+
+  for (const p of allPlayers) {
+    const fields = [
+      p.riotId,
+      p.riotIdGameName,
+      p.summonerName,
+      p.riotIdGameName && p.riotIdTagLine
+        ? `${p.riotIdGameName}#${p.riotIdTagLine}`
+        : "",
+      p.riotIdGameName ? String(p.riotIdGameName).split("#")[0] : "",
+      p.summonerName ? String(p.summonerName).split("#")[0] : "",
+    ]
+      .map((s) => String(s || "").trim().toLowerCase())
+      .filter(Boolean);
+
+    if (fields.some((f) => candidates.includes(f))) return p;
+  }
+
+  return null;
+}
+
 function playerToYou(p: any, active: any): ActiveYou {
   return {
-    championName: String(p.championName ?? "Unknown"),
-    level: Number(p.level ?? 1),
+    championName: resolveChampionLabel(p.championName ?? p.rawChampionName ?? "Unknown"),
+    level: Number(p.level ?? active?.level ?? 1),
     currentGold: Number(active?.currentGold ?? p.currentGold ?? 0),
     kills: Number(p.scores?.kills ?? 0),
     deaths: Number(p.scores?.deaths ?? 0),
@@ -155,7 +204,9 @@ function summarizeEvent(e: any): string {
 
 function extractSpells(active: any): string[] {
   const a = active?.summonerSpells ?? {};
-  return [a.summonerSpellOne?.displayName, a.summonerSpellTwo?.displayName].filter(Boolean) as string[];
+  return [a.summonerSpellOne?.displayName, a.summonerSpellTwo?.displayName].filter(
+    Boolean
+  ) as string[];
 }
 
 function extractItems(active: any): string[] {

@@ -7,6 +7,7 @@ import path from "node:path";
 import os from "node:os";
 import { Agent, fetch as undiciFetch } from "undici";
 import type { ChampSelectState } from "@riftcoach/shared";
+import { championNameFromId, resolveChampionLabel } from "@riftcoach/shared";
 
 const insecureAgent = new Agent({ connect: { rejectUnauthorized: false } });
 
@@ -31,6 +32,11 @@ function parseLockfile(content: string): { port: string; password: string } | nu
   const parts = content.trim().split(":");
   if (parts.length < 5) return null;
   return { port: parts[2], password: parts[3] };
+}
+
+function labelChamp(id?: number): string {
+  if (!id || id <= 0) return "";
+  return championNameFromId(id) || String(id);
 }
 
 export async function fetchChampSelect(): Promise<ChampSelectState | null> {
@@ -59,32 +65,48 @@ export async function fetchChampSelect(): Promise<ChampSelectState | null> {
     if (!res.ok) return null;
 
     const data = (await res.json()) as {
-      myTeam?: Array<{ championId?: number; assignedPosition?: string }>;
-      theirTeam?: Array<{ championId?: number }>;
+      myTeam?: Array<{
+        championId?: number;
+        championPickIntent?: number;
+        assignedPosition?: string;
+        cellId?: number;
+      }>;
+      theirTeam?: Array<{ championId?: number; championPickIntent?: number; cellId?: number }>;
       bans?: { myTeamBans?: number[]; theirTeamBans?: number[] };
       localPlayerCellId?: number;
     };
 
+    // localPlayerCellId is a cell id, NOT an array index
     const me =
-      data.myTeam?.find((t, i) => i === data.localPlayerCellId) ||
+      data.myTeam?.find((t) => t.cellId === data.localPlayerCellId) ||
       data.myTeam?.find((t) => t.championId && t.championId > 0) ||
       data.myTeam?.[0];
 
+    const myId =
+      (me?.championId && me.championId > 0 ? me.championId : 0) ||
+      (me?.championPickIntent && me.championPickIntent > 0 ? me.championPickIntent : 0) ||
+      undefined;
+
+    const myName = myId ? labelChamp(myId) : undefined;
+
     return {
       active: true,
-      myChampionId: me?.championId || undefined,
+      myChampionId: myId,
+      myChampion: myName || undefined,
       assignedPosition: me?.assignedPosition || undefined,
       allies: (data.myTeam || [])
-        .map((t) => (t.championId && t.championId > 0 ? String(t.championId) : ""))
-        .filter(Boolean),
+        .map((t) => labelChamp(t.championId || t.championPickIntent))
+        .filter(Boolean)
+        .map((n) => resolveChampionLabel(n)),
       enemies: (data.theirTeam || [])
-        .map((t) => (t.championId && t.championId > 0 ? String(t.championId) : ""))
-        .filter(Boolean),
+        .map((t) => labelChamp(t.championId || t.championPickIntent))
+        .filter(Boolean)
+        .map((n) => resolveChampionLabel(n)),
       bans: [
-        ...(data.bans?.myTeamBans || []).map(String),
-        ...(data.bans?.theirTeamBans || []).map(String),
+        ...(data.bans?.myTeamBans || []).map((id) => labelChamp(id) || String(id)),
+        ...(data.bans?.theirTeamBans || []).map((id) => labelChamp(id) || String(id)),
       ],
-      message: "Champ select active",
+      message: myName ? `Locked ${myName}` : "Champ select active",
       updatedAt: new Date().toISOString(),
     };
   } catch {

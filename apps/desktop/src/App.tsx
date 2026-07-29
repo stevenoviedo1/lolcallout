@@ -3,6 +3,7 @@ import {
   QUICK_CHIPS,
   computeMatchAnalytics,
   formatGameClock,
+  resolveChampionLabel,
 } from "@riftcoach/shared";
 import {
   listEnglishVoices,
@@ -441,9 +442,13 @@ export default function App() {
                   <span className="checklist-ico">{isRealLive ? "✓" : "○"}</span>
                   <span>
                     {isRealLive
-                      ? `Live — ${modeFull} · ${you?.championName || "?"}`
+                      ? `Live — ${modeFull} · ${resolveChampionLabel(you?.championName) || "?"}`
                       : champSelect?.active
-                        ? "Champ select detected"
+                        ? `Champ select — ${
+                            resolveChampionLabel(
+                              champSelect.myChampion || champSelect.myChampionId
+                            ) || "pick in progress"
+                          }`
                         : "Waiting for League…"}
                   </span>
                 </div>
@@ -901,6 +906,10 @@ export default function App() {
           {champSelect?.active && (
             <div className="stat-card gold-border">
               <h3>Champ select</h3>
+              <p style={{ margin: "0 0 4px", fontWeight: 650 }}>
+                {resolveChampionLabel(champSelect.myChampion || champSelect.myChampionId) ||
+                  "Hover / lock a champion"}
+              </p>
               <p className="muted" style={{ margin: "0 0 8px", fontSize: 12 }}>
                 {champSelect.assignedPosition || "role n/a"}
               </p>
