@@ -4,14 +4,18 @@ import {
   createMagicLink,
   createSession,
   getSessionUser,
+  getUserByEmail,
   grantFounders,
   grantPro,
   isValidEmail,
+  isValidPassword,
   publicUser,
   revokeSession,
+  setUserPassword,
   touchLogin,
   upsertUser,
   userHasAccess,
+  verifyPassword,
   type User,
 } from "./authStore.js";
 import { sendMagicLinkEmail } from "./email.js";
@@ -65,12 +69,88 @@ export function registerAuthRoutes(app: Express) {
     process.env.API_PUBLIC_URL || `http://127.0.0.1:${process.env.API_PORT || 8787}`;
 
   /**
-   * Desktop local sign-in: create a session immediately for this email.
-   * Only allowed when the request hits the local API (127.0.0.1 / localhost).
-   * Fixes packaged-app login when email/Resend is not configured.
+   * Create account with email + password (secure, works for any downloaded client).
+   */
+  app.post("/v1/auth/register", async (req, res) => {
+    try {
+      const email = String(req.body?.email || "").trim();
+      const password = String(req.body?.password || "");
+      if (!isValidEmail(email)) {
+        return res.status(400).json({ error: "Valid email required" });
+      }
+      if (!isValidPassword(password)) {
+        return res.status(400).json({ error: "Password must be 8–128 characters" });
+      }
+
+      const existing = getUserByEmail(email);
+      if (existing?.passwordHash) {
+        return res.status(409).json({ error: "An account with this email already exists. Sign in instead." });
+      }
+
+      // New user, or legacy magic-link-only user setting a password for the first time
+      const user = await setUserPassword(email, password);
+      touchLogin(user.id);
+      const session = createSession(user);
+      res.status(201).json({
+        ok: true,
+        token: session.rawToken,
+        user: publicUser(user),
+        expiresAt: new Date(session.expiresAt).toISOString(),
+      });
+    } catch (e) {
+      console.error("[auth] register", e);
+      res.status(500).json({ error: e instanceof Error ? e.message : "Registration failed" });
+    }
+  });
+
+  /**
+   * Sign in with email + password.
+   */
+  app.post("/v1/auth/login", async (req, res) => {
+    try {
+      const email = String(req.body?.email || "").trim();
+      const password = String(req.body?.password || "");
+      if (!isValidEmail(email) || !password) {
+        return res.status(400).json({ error: "Email and password required" });
+      }
+
+      const user = getUserByEmail(email);
+      if (!user?.passwordHash) {
+        return res.status(401).json({
+          error: user
+            ? "This account has no password yet. Create an account with this email to set one, or use Sign up."
+            : "Invalid email or password",
+        });
+      }
+
+      const ok = await verifyPassword(password, user.passwordHash);
+      if (!ok) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      touchLogin(user.id);
+      const session = createSession(user);
+      res.json({
+        ok: true,
+        token: session.rawToken,
+        user: publicUser(user),
+        expiresAt: new Date(session.expiresAt).toISOString(),
+      });
+    } catch (e) {
+      console.error("[auth] login", e);
+      res.status(500).json({ error: e instanceof Error ? e.message : "Sign-in failed" });
+    }
+  });
+
+  /**
+   * Dev-only email-only login. Never available on cloud (requires true loopback).
+   * AUTH_DEV_RETURN_LINK no longer unlocks this — that was insecure.
    */
   app.post("/v1/auth/desktop-login", (req, res) => {
     try {
+      if (process.env.NODE_ENV === "production" && process.env.ALLOW_DESKTOP_LOGIN !== "1") {
+        return res.status(403).json({ error: "Use email and password to sign in" });
+      }
       const host = String(req.hostname || req.ip || "").toLowerCase();
       const remote = String(req.socket?.remoteAddress || "");
       const local =
@@ -79,8 +159,7 @@ export function registerAuthRoutes(app: Express) {
         host === "::1" ||
         remote === "127.0.0.1" ||
         remote === "::1" ||
-        remote === "::ffff:127.0.0.1" ||
-        process.env.AUTH_DEV_RETURN_LINK === "1";
+        remote === "::ffff:127.0.0.1";
       if (!local) {
         return res.status(403).json({ error: "Desktop login only on local app" });
       }

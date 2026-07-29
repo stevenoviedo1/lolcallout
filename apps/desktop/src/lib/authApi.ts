@@ -1,4 +1,4 @@
-import { API_URL, CLOUD_API_URL } from "./config";
+import { API_URL, AUTH_API_URL, CLOUD_API_URL, LOCAL_API_URL } from "./config";
 
 export interface AuthUser {
   id: string;
@@ -30,11 +30,17 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Health of whichever API we're using for coach (cloud preferred). */
+function uniqueUrls(...urls: (string | null | undefined)[]): string[] {
+  return urls.filter((v, i, a): v is string => Boolean(v) && a.indexOf(v) === i);
+}
+
+/** Prefer the auth server, then coach API, for session checks */
+function authBases(): string[] {
+  return uniqueUrls(AUTH_API_URL, CLOUD_API_URL, API_URL, LOCAL_API_URL);
+}
+
 export async function waitForApi(timeoutMs = 15_000): Promise<boolean> {
-  const bases = [API_URL, CLOUD_API_URL].filter(
-    (v, i, a) => v && a.indexOf(v) === i
-  );
+  const bases = uniqueUrls(API_URL, AUTH_API_URL, CLOUD_API_URL, LOCAL_API_URL);
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     for (const base of bases) {
@@ -50,73 +56,76 @@ export async function waitForApi(timeoutMs = 15_000): Promise<boolean> {
   return false;
 }
 
-export type MagicLinkResult = {
+export type AuthResult = {
   ok: boolean;
   error?: string;
-  message?: string;
-  emailed?: boolean;
-  browserAuthUrl?: string;
-  provider?: string;
+  token?: string;
+  user?: AuthUser;
+  expiresAt?: string;
 };
 
-/**
- * Request magic link from the **cloud** API.
- * Email (if Resend configured) or browserAuthUrl opens verify → lolcallout:// deep link.
- */
-export async function requestDesktopMagicLink(email: string): Promise<MagicLinkResult> {
+async function postAuth(
+  path: "/v1/auth/login" | "/v1/auth/register",
+  email: string,
+  password: string
+): Promise<AuthResult> {
   const trimmed = email.trim();
   if (!trimmed) return { ok: false, error: "Email required" };
+  if (!password) return { ok: false, error: "Password required" };
 
-  try {
-    const res = await fetch(`${CLOUD_API_URL}/v1/auth/magic-link`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({
-        email: trimmed,
-        desktop: true,
-        redirect: "lolcallout://auth",
-      }),
-    });
-    const data = (await res.json().catch(() => ({}))) as {
-      error?: string;
-      message?: string;
-      emailed?: boolean;
-      browserAuthUrl?: string;
-      devMagicUrl?: string;
-      provider?: string;
-    };
-    if (!res.ok) {
-      return { ok: false, error: data.error || `Sign-in request failed (${res.status})` };
-    }
-    // Force deep-link return into the desktop app (works even if cloud API
-    // was built before the desktop=true redirect flag existed).
-    const rawBrowser = data.browserAuthUrl || data.devMagicUrl || "";
-    let browserAuthUrl = rawBrowser;
-    if (rawBrowser) {
-      try {
-        const u = new URL(rawBrowser);
-        u.searchParams.set("redirect", "lolcallout://auth");
-        browserAuthUrl = u.toString();
-      } catch {
-        /* keep raw */
+  // Prefer cloud account API (shared accounts for every download).
+  // Fall back to local API if cloud is unreachable or not yet upgraded.
+  const bases = uniqueUrls(AUTH_API_URL, CLOUD_API_URL, LOCAL_API_URL);
+  let lastError = "Could not reach sign-in server";
+
+  for (const base of bases) {
+    try {
+      const res = await fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ email: trimmed, password }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        token?: string;
+        user?: AuthUser;
+        expiresAt?: string;
+      };
+      if (!res.ok) {
+        // 404 = old server without password routes — try next base
+        if (res.status === 404) {
+          lastError = "Sign-in server needs an update. Try again later.";
+          continue;
+        }
+        return { ok: false, error: data.error || `Request failed (${res.status})` };
       }
+      if (!data.token || !data.user) {
+        return { ok: false, error: "Sign-in response incomplete" };
+      }
+      setStoredToken(data.token);
+      return {
+        ok: true,
+        token: data.token,
+        user: data.user,
+        expiresAt: data.expiresAt,
+      };
+    } catch (e) {
+      lastError =
+        e instanceof Error ? `Could not reach sign-in server: ${e.message}` : lastError;
     }
-    return {
-      ok: true,
-      message: data.message,
-      emailed: data.emailed,
-      browserAuthUrl: browserAuthUrl || undefined,
-      provider: data.provider,
-    };
-  } catch (e) {
-    return {
-      ok: false,
-      error:
-        e instanceof Error
-          ? `Could not reach sign-in server: ${e.message}`
-          : "Could not reach sign-in server",
-    };
   }
+
+  return { ok: false, error: lastError };
+}
+
+/** Sign in with email + password (existing account). */
+export async function loginWithPassword(email: string, password: string): Promise<AuthResult> {
+  return postAuth("/v1/auth/login", email, password);
+}
+
+/** Create account with email + password. */
+export async function registerWithPassword(email: string, password: string): Promise<AuthResult> {
+  return postAuth("/v1/auth/register", email, password);
 }
 
 export async function openInBrowser(url: string): Promise<void> {
@@ -137,40 +146,38 @@ export async function openInBrowser(url: string): Promise<void> {
 export async function fetchMe(): Promise<AuthUser | null> {
   const t = getStoredToken();
   if (!t) return null;
-  // Prefer cloud (token was issued there)
-  const bases = [CLOUD_API_URL, API_URL].filter((v, i, a) => v && a.indexOf(v) === i);
-  for (const base of bases) {
+  for (const base of authBases()) {
     try {
       const res = await fetch(`${base}/v1/auth/me`, {
         headers: { ...authHeaders() },
       });
-      if (res.status === 401) {
-        setStoredToken(null);
-        return null;
-      }
+      if (res.status === 401) continue;
       if (!res.ok) continue;
       const data = (await res.json()) as { user: AuthUser };
       return data.user;
     } catch {
-      /* try next base */
+      /* try next */
     }
   }
+  setStoredToken(null);
   return null;
 }
 
 export async function logout(): Promise<void> {
-  try {
-    await fetch(`${CLOUD_API_URL}/v1/auth/logout`, {
-      method: "POST",
-      headers: { ...authHeaders() },
-    });
-  } catch {
-    /* ignore */
+  for (const base of authBases()) {
+    try {
+      await fetch(`${base}/v1/auth/logout`, {
+        method: "POST",
+        headers: { ...authHeaders() },
+      });
+    } catch {
+      /* ignore */
+    }
   }
   setStoredToken(null);
 }
 
-/** Capture session token from URL hash after magic-link deep link */
+/** Capture session token from URL hash (legacy magic-link deep link) */
 export function consumeAuthHash(): string | null {
   const hash = window.location.hash || "";
   const m = hash.match(/auth_token=([^&]+)/);

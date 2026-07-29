@@ -9,6 +9,8 @@ export interface User {
   id: string;
   email: string;
   plan: Plan;
+  /** scrypt password hash: saltHex:keyHex (never returned to clients) */
+  passwordHash?: string;
   /** Founders promo ends; then treated as pro if still active sub, else free */
   foundersUntil?: string;
   /** Paid access valid until (ISO) — set by Stripe/manual */
@@ -73,6 +75,49 @@ function normalizeEmail(email: string): string {
 
 export function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
+export function isValidPassword(password: string): boolean {
+  return typeof password === "string" && password.length >= 8 && password.length <= 128;
+}
+
+// --- Password hashing (Node crypto scrypt — no extra deps) ---
+
+const SCRYPT_KEYLEN = 64;
+
+export async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const key = (await new Promise<Buffer>((resolve, reject) => {
+    crypto.scrypt(password, salt, SCRYPT_KEYLEN, (err, derived) => {
+      if (err) reject(err);
+      else resolve(derived as Buffer);
+    });
+  })).toString("hex");
+  return `${salt}:${key}`;
+}
+
+export async function verifyPassword(password: string, stored: string | undefined): Promise<boolean> {
+  if (!stored || !password) return false;
+  const [salt, keyHex] = stored.split(":");
+  if (!salt || !keyHex) return false;
+  try {
+    const derived = await new Promise<Buffer>((resolve, reject) => {
+      crypto.scrypt(password, salt, SCRYPT_KEYLEN, (err, buf) => {
+        if (err) reject(err);
+        else resolve(buf as Buffer);
+      });
+    });
+    const expected = Buffer.from(keyHex, "hex");
+    if (derived.length !== expected.length) return false;
+    return crypto.timingSafeEqual(derived, expected);
+  } catch {
+    return false;
+  }
+}
+
+export async function setUserPassword(email: string, password: string): Promise<User> {
+  const passwordHash = await hashPassword(password);
+  return upsertUser(email, { passwordHash });
 }
 
 // --- Users ---

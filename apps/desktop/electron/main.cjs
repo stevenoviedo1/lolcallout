@@ -111,7 +111,56 @@ function spawnNodeScript(scriptPath, envExtra, name) {
   return child;
 }
 
-function startBackend() {
+/** True if something already answers HTTP on this URL (healthy leftover from prior run). */
+function httpOk(url, timeoutMs = 600) {
+  return new Promise((resolve) => {
+    const req = http.get(url, (res) => {
+      res.resume();
+      resolve(res.statusCode >= 200 && res.statusCode < 500);
+    });
+    req.on("error", () => resolve(false));
+    req.setTimeout(timeoutMs, () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
+/**
+ * Listen on preferred port; if EADDRINUSE, bind OS-assigned free port.
+ * Never throws uncaught — resolves with the port actually bound.
+ */
+function listenPreferPort(server, preferred, host = "127.0.0.1") {
+  return new Promise((resolve, reject) => {
+    const finish = (port) => {
+      const addr = server.address();
+      const bound =
+        typeof addr === "object" && addr && typeof addr.port === "number"
+          ? addr.port
+          : port;
+      resolve(bound);
+    };
+
+    const onError = (err) => {
+      server.off("error", onError);
+      if (err && err.code === "EADDRINUSE") {
+        // Preferred busy (stale LOLCallout / second copy) — take any free port
+        server.once("error", reject);
+        server.listen(0, host, () => finish(0));
+        return;
+      }
+      reject(err);
+    };
+
+    server.once("error", onError);
+    server.listen(preferred, host, () => {
+      server.off("error", onError);
+      finish(preferred);
+    });
+  });
+}
+
+async function startBackend() {
   const rootEnv = loadEnvFile(
     isDev ? path.join(__dirname, "../../../.env") : resourcePath("playtest.env")
   );
@@ -153,6 +202,7 @@ function startBackend() {
   }
 
   // Desktop auth: magic links complete inside the app (or via lolcallout:// protocol)
+  // CORS allows any localhost UI port (UI may fall back if 5179 is busy)
   const common = {
     ...envFile,
     API_PORT: String(apiPort),
@@ -164,17 +214,30 @@ function startBackend() {
     AUTH_APP_URL: `${PROTOCOL}://auth`,
     AUTH_DEV_RETURN_LINK: "1",
     CORS_ORIGIN: `http://127.0.0.1:${uiPort}`,
+    CORS_ALLOW_LOCALHOST: "1",
     DATA_DIR: dataDir,
     NODE_PATH: nodePath,
   };
 
-  spawnNodeScript(apiEntry, common, "api");
-  spawnNodeScript(agentEntry, common, "agent");
+  // Reuse healthy leftovers instead of crashing with EADDRINUSE
+  const apiHealthy = await httpOk(`http://127.0.0.1:${apiPort}/health`);
+  if (apiHealthy) {
+    console.log(`[boot] reusing local API on :${apiPort}`);
+  } else {
+    spawnNodeScript(apiEntry, common, "api");
+  }
+
+  const agentHealthy = await httpOk(`http://127.0.0.1:${agentPort}/health`);
+  if (agentHealthy) {
+    console.log(`[boot] reusing local agent on :${agentPort}`);
+  } else {
+    spawnNodeScript(agentEntry, common, "agent");
+  }
 
   return bootPorts;
 }
 
-function startUiStaticServer(uiDir, port) {
+function startUiStaticServer(uiDir, preferredPort) {
   const mime = {
     ".html": "text/html",
     ".js": "application/javascript",
@@ -204,22 +267,25 @@ function startUiStaticServer(uiDir, port) {
       res.end("error");
     }
   });
-  staticServer.listen(port, "127.0.0.1");
+  return listenPreferPort(staticServer, preferredPort, "127.0.0.1");
 }
 
-/** Cloud API for auth + coach (login must not depend on local service) */
+/** Optional cloud API (billing / website). Desktop auth + coach use local API. */
 const CLOUD_API =
   process.env.LOL_CLOUD_API_URL ||
   "https://lolcallout-production.up.railway.app";
 
 function uiLoadUrl(extraHash) {
-  const { agentPort, uiPort } = bootPorts;
-  // Auth + sessions hit cloud; Live Client agent stays local on this PC
+  const { agentPort, uiPort, apiPort } = bootPorts;
+  // Secure accounts + coach live on the cloud account API.
+  // Live Client agent stays on this PC. Local API is still spawned as a helper.
+  const localApi = `http://127.0.0.1:${apiPort}`;
   const qs = new URLSearchParams({
     api: CLOUD_API,
+    authApi: CLOUD_API,
     cloudApi: CLOUD_API,
+    localApi,
     agent: `http://127.0.0.1:${agentPort}`,
-    localApi: `http://127.0.0.1:${bootPorts.apiPort}`,
   });
   let url = `http://127.0.0.1:${uiPort}/?${qs.toString()}`;
   if (extraHash) {
@@ -318,7 +384,7 @@ function saveWindowBounds() {
   }
 }
 
-function createWindow() {
+async function createWindow() {
   const icon = appIcon();
   const saved = loadWindowBounds();
   // Default: full coach layout size (not a tiny phone-style panel)
@@ -359,7 +425,21 @@ function createWindow() {
   });
 
   const uiDir = isDev ? path.join(__dirname, "..", "dist") : resourcePath("ui");
-  startUiStaticServer(uiDir, bootPorts.uiPort);
+  try {
+    const bound = await startUiStaticServer(uiDir, bootPorts.uiPort);
+    if (bound !== bootPorts.uiPort) {
+      console.warn(`[boot] UI port ${bootPorts.uiPort} busy — using ${bound}`);
+    }
+    bootPorts.uiPort = bound;
+  } catch (e) {
+    console.error("[boot] UI static server failed", e);
+    dialog.showErrorBox(
+      "LOLCallout",
+      "Could not start the local UI server.\n\n" +
+        "Close every LOLCallout window (check Task Manager), then reopen the app.\n\n" +
+        String(e && e.message ? e.message : e)
+    );
+  }
 
   // Load UI once — do NOT reload when API comes up (that wiped sign-in mid-flow)
   mainWindow.loadURL(uiLoadUrl());
@@ -432,7 +512,7 @@ app.on("open-url", (event, url) => {
   applyAuthFromProtocolUrl(url);
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   ipcMain.handle("app:getVersion", () => app.getVersion());
   ipcMain.handle("app:openExternal", (_e, url) => {
     if (typeof url === "string" && /^https?:\/\//i.test(url)) {
@@ -448,8 +528,17 @@ app.whenReady().then(() => {
     return true;
   });
 
-  startBackend();
-  createWindow();
+  try {
+    await startBackend();
+    await createWindow();
+  } catch (e) {
+    console.error("[boot] failed", e);
+    dialog.showErrorBox(
+      "LOLCallout",
+      "Startup failed.\n\nClose every LOLCallout in Task Manager, then try again.\n\n" +
+        String(e && e.message ? e.message : e)
+    );
+  }
 
   // Windows: protocol URL may be in process.argv on first launch
   const proto = process.argv.find(

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
-  openInBrowser,
-  requestDesktopMagicLink,
+  loginWithPassword,
+  registerWithPassword,
   type AuthUser,
 } from "../lib/authApi";
 import {
@@ -10,13 +10,18 @@ import {
   resolveLatestDownloadUrl,
 } from "../lib/updates";
 
+type Mode = "signin" | "signup";
+
 export function LoginScreen({
   onSignedIn,
 }: {
   onSignedIn?: (user?: AuthUser | null) => void;
 }) {
+  const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [password, setPassword] = useState("");
+  const [password2, setPassword2] = useState("");
+  const [status, setStatus] = useState<"idle" | "busy" | "error">("idle");
   const [message, setMessage] = useState("");
   const [localVersion, setLocalVersion] = useState("");
   const [updating, setUpdating] = useState(false);
@@ -25,7 +30,6 @@ export function LoginScreen({
     void getAppVersion().then((v) => setLocalVersion(v));
   }, []);
 
-  // Deep link / hash may complete sign-in while this screen is open
   useEffect(() => {
     const onHash = () => {
       if (window.location.hash.includes("auth_token=")) {
@@ -48,40 +52,45 @@ export function LoginScreen({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setStatus("sending");
+    setStatus("busy");
     setMessage("");
 
-    const res = await requestDesktopMagicLink(email);
-    if (!res.ok) {
+    if (mode === "signup") {
+      if (password.length < 8) {
+        setStatus("error");
+        setMessage("Password must be at least 8 characters.");
+        return;
+      }
+      if (password !== password2) {
+        setStatus("error");
+        setMessage("Passwords do not match.");
+        return;
+      }
+      const res = await registerWithPassword(email, password);
+      if (!res.ok || !res.user) {
+        setStatus("error");
+        setMessage(res.error || "Could not create account");
+        return;
+      }
+      onSignedIn?.(res.user);
+      return;
+    }
+
+    const res = await loginWithPassword(email, password);
+    if (!res.ok || !res.user) {
       setStatus("error");
-      setMessage(res.error || "Could not start sign-in");
+      setMessage(res.error || "Could not sign in");
       return;
     }
+    onSignedIn?.(res.user);
+  };
 
-    setStatus("sent");
-
-    if (res.emailed) {
-      setMessage(
-        "Check your email — click “Sign in securely”. Windows will ask to open LOLCallout."
-      );
-      return;
-    }
-
-    // No Resend on server: open the one-shot verify URL in the system browser.
-    // Verify page redirects to lolcallout://auth?token=… which reopens this app signed in.
-    if (res.browserAuthUrl) {
-      setMessage("Opening your browser to finish secure sign-in…");
-      await openInBrowser(res.browserAuthUrl);
-      setMessage(
-        "Finish in the browser window. If Windows asks to open LOLCallout, click Open. This app will sign you in automatically."
-      );
-      return;
-    }
-
-    setMessage(
-      res.message ||
-        "Check your email for a sign-in link. Then return here — the app will open signed in."
-    );
+  const switchMode = (next: Mode) => {
+    setMode(next);
+    setStatus("idle");
+    setMessage("");
+    setPassword("");
+    setPassword2("");
   };
 
   return (
@@ -110,67 +119,99 @@ export function LoginScreen({
             {updating ? "Opening…" : "Get latest update"}
           </button>
           <p className="muted login-update-hint">
-            Installer from our official GitHub release — no sign-in required.
+            Installer from our official GitHub release.
           </p>
         </div>
 
+        <div className="login-mode-tabs" role="tablist" aria-label="Account">
+          <button
+            type="button"
+            role="tab"
+            className={`chip ${mode === "signin" ? "chip-primary" : ""}`}
+            aria-selected={mode === "signin"}
+            onClick={() => switchMode("signin")}
+          >
+            Sign in
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`chip ${mode === "signup" ? "chip-primary" : ""}`}
+            aria-selected={mode === "signup"}
+            onClick={() => switchMode("signup")}
+          >
+            Create account
+          </button>
+        </div>
+
         <p className="login-lead">
-          Sign in with a <strong>magic link</strong>: we open your browser / email, you click once,
-          then Windows brings you back into this app. No password.
+          {mode === "signin"
+            ? "Sign in with your LOLCallout email and password."
+            : "Create a secure account — email + password. Works on any PC you install on."}
         </p>
 
-        {status !== "sent" ? (
-          <form onSubmit={(e) => void submit(e)} className="login-form">
+        <form onSubmit={(e) => void submit(e)} className="login-form">
+          <label className="slider-label">
+            Email
+            <input
+              className="voice-select login-input"
+              type="email"
+              required
+              autoComplete="email"
+              placeholder="you@email.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={status === "busy"}
+            />
+          </label>
+          <label className="slider-label">
+            Password
+            <input
+              className="voice-select login-input"
+              type="password"
+              required
+              minLength={8}
+              autoComplete={mode === "signup" ? "new-password" : "current-password"}
+              placeholder={mode === "signup" ? "At least 8 characters" : "Your password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={status === "busy"}
+            />
+          </label>
+          {mode === "signup" ? (
             <label className="slider-label">
-              Email
+              Confirm password
               <input
                 className="voice-select login-input"
-                type="email"
+                type="password"
                 required
-                autoComplete="email"
-                placeholder="you@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                disabled={status === "sending"}
+                minLength={8}
+                autoComplete="new-password"
+                placeholder="Repeat password"
+                value={password2}
+                onChange={(e) => setPassword2(e.target.value)}
+                disabled={status === "busy"}
               />
             </label>
-            <button className="send login-btn" type="submit" disabled={status === "sending"}>
-              {status === "sending" ? "Sending…" : "Email me a sign-in link"}
-            </button>
-          </form>
-        ) : (
-          <div className="login-sent">
-            <p className="ok-msg">{message}</p>
-            <p className="muted" style={{ marginTop: 12, fontSize: 13 }}>
-              Keep this window open. After you click the link, you should land here signed in.
-            </p>
-            <button
-              type="button"
-              className="chip"
-              style={{ marginTop: 14 }}
-              onClick={() => {
-                setStatus("idle");
-                setMessage("");
-              }}
-            >
-              Use a different email
-            </button>
-          </div>
-        )}
+          ) : null}
+          <button className="send login-btn" type="submit" disabled={status === "busy"}>
+            {status === "busy"
+              ? mode === "signup"
+                ? "Creating…"
+                : "Signing in…"
+              : mode === "signup"
+                ? "Create account"
+                : "Sign in"}
+          </button>
+        </form>
 
-        {status === "error" && message && <p className="err">{message}</p>}
+        {status === "error" && message ? <p className="err">{message}</p> : null}
 
         <div className="login-security">
-          <p className="login-security-title">How this works</p>
+          <p className="login-security-title">Secure account</p>
           <ul>
-            <li>
-              Sign-in is handled by our secure server + browser (not a free-for-all “type any
-              email”).
-            </li>
-            <li>
-              The link proves you control the inbox, then opens <strong>LOLCallout</strong> via a
-              private deep link.
-            </li>
+            <li>Password is hashed on our servers (scrypt). We never store plain text.</li>
+            <li>Same login works on every PC you download LOLCallout to.</li>
             <li>Use the same email you use for Founders / Pro on lolcallout.com.</li>
           </ul>
         </div>
@@ -178,7 +219,7 @@ export function LoginScreen({
         <ul className="login-trust">
           <li>Live Client only · no injection</li>
           <li>One coach voice · second monitor ready</li>
-          <li>Browser sign-in · returns to this app</li>
+          <li>Email + password · your account</li>
         </ul>
 
         <div className="login-plans">

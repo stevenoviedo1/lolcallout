@@ -12,8 +12,7 @@ import {
 } from "./lib/authApi";
 
 /**
- * Auth gate: browser magic-link (cloud) → lolcallout:// deep link back into the app.
- * Does not require the local coach service to start for sign-in.
+ * Auth gate: email + password against the LOLCallout account API.
  */
 export function Root() {
   const [booting, setBooting] = useState(true);

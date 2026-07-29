@@ -50,21 +50,34 @@ const HOST =
   process.env.API_HOST ||
   (process.env.NODE_ENV === "production" || process.env.PORT ? "0.0.0.0" : "127.0.0.1");
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:5173";
+/** Desktop may bind UI on any free localhost port if 5179 is busy */
+const CORS_ALLOW_LOCALHOST = process.env.CORS_ALLOW_LOCALHOST === "1";
 
 loadFromDisk();
 
 const app = express();
+const staticCorsOrigins = new Set([
+  CORS_ORIGIN,
+  "http://127.0.0.1:5173",
+  "http://localhost:5173",
+  "http://127.0.0.1:5179",
+  "http://localhost:5179",
+  "https://lolcallout.com",
+  "https://www.lolcallout.com",
+]);
 app.use(
   cors({
-    origin: [
-      CORS_ORIGIN,
-      "http://127.0.0.1:5173",
-      "http://localhost:5173",
-      "http://127.0.0.1:5179",
-      "http://localhost:5179",
-      "https://lolcallout.com",
-      "https://www.lolcallout.com",
-    ],
+    origin(origin, cb) {
+      if (!origin) return cb(null, true);
+      if (staticCorsOrigins.has(origin)) return cb(null, true);
+      if (
+        CORS_ALLOW_LOCALHOST &&
+        /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(origin)
+      ) {
+        return cb(null, true);
+      }
+      return cb(null, false);
+    },
     credentials: true,
   })
 );

@@ -1630,6 +1630,17 @@ button {
   font-weight: 750;
 }
 
+.login-mode-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+
+.login-mode-tabs .chip {
+  flex: 1;
+  justify-content: center;
+}
+
 .login-lead {
   color: var(--muted);
   font-size: 0.93rem;
