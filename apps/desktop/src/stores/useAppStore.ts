@@ -1541,19 +1541,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Premium post-game memory report (habits, leaks, next LO)
       let postGame: PostGameReport | null = null;
       try {
-        const a = computeMatchAnalytics(
-          safeCtx.inGame ? safeCtx : { ...safeCtx, inGame: true }
-        );
-        // Force analytics when game just ended: use last live stats with inGame true
+        // Game may already be ended (inGame false) — force true so analytics run
         const reportCtx = {
           ...safeCtx,
           inGame: true,
           you: you || safeCtx.you,
         };
+        const a = computeMatchAnalytics(reportCtx);
         postGame = buildPostGameReport({
           ctx: reportCtx,
           memory: matchMemory,
-          analytics: a || computeMatchAnalytics(reportCtx),
+          analytics: a,
           grade,
           deathReport: dr,
           result,

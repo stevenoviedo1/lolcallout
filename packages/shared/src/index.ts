@@ -374,6 +374,7 @@ export {
   flavorLine,
   toNaturalTalk,
   isTelegraphicLine,
+  namesAreDown,
   COACH_PERSONALITY_LABELS,
   type CoachPersonality,
 } from "./personality.js";

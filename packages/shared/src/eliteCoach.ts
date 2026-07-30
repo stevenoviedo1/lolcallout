@@ -465,8 +465,21 @@ export function synthesizeEliteCallouts(opts: {
     add("tempo", 30, "identity", line, "identity", "champ kit identity", `id:${c}:${Math.floor(a.minute / 4)}`);
   }
 
-  out.sort((x, y) => y.score - x.score);
-  return out;
+  // Drop near-duplicate lines (same humanized tip twice from deep + shotcall)
+  const seen = new Set<string>();
+  const deduped: EliteCallout[] = [];
+  for (const c of out.sort((x, y) => y.score - x.score)) {
+    const key = c.line
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 48);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(c);
+  }
+  return deduped;
 }
 
 function themeSig(s: string): string {

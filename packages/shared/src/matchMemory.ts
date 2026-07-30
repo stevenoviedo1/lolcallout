@@ -217,19 +217,26 @@ export function updateMatchMemory(
         }
       }
     }
-    // Convert taken: green + enemy dead + (kill or gold spend or objective event)
+    // Convert taken: green + enemies dead + (got a kill this tick OR cleanup phase)
+    // Use mem.youKills (pre-tick) so a kill this frame still counts as convert.
+    const gotKillThisTick = you.kills > mem.youKills;
     if (
       analytics.fightLight === "green" &&
       analytics.enemy.dead >= 1 &&
-      (you.kills > mem.youKills || analytics.battlePhase === "cleanup")
+      (gotKillThisTick ||
+        analytics.battlePhase === "cleanup" ||
+        analytics.battlePhase === "winning")
     ) {
       const lastC = next.events.filter((e) => e.kind === "convert_taken").pop();
-      if (!lastC || t - lastC.t > 25) {
+      // Don't spam convert_taken every poll during long cleanup — 40s spacing
+      if (!lastC || t - lastC.t > 40) {
         pushEvent(next, {
           t,
           kind: "convert_taken",
-          note: `${analytics.enemyDeadNames.slice(0, 2).join("+") || "numbers"} down — convert window`,
+          note: `${analytics.enemyDeadNames.slice(0, 2).join(" and ") || "numbers"} down — convert window`,
         });
+        // Successful convert cancels a pending miss streak a bit
+        if (next.greenWithoutConvert > 0) next.greenWithoutConvert -= 1;
       }
     }
     if (analytics.fightLight === "red") {

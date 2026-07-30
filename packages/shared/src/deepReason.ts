@@ -8,7 +8,7 @@ import type { MatchAnalytics } from "./analytics.js";
 import type { ModeProfile } from "./modes.js";
 import { getChampKit } from "./champKnowledge.js";
 import type { CoachPersonality } from "./personality.js";
-import { toNaturalTalk } from "./personality.js";
+import { namesAreDown, toNaturalTalk } from "./personality.js";
 
 export interface ReasonOption {
   id: string;
@@ -466,10 +466,10 @@ function buildSpeak(
             ? `That's an ace — take a tower or inhib, then base with your ${ctx.g} gold. Don't chase into fog.`
             : `That's an ace — take baron, an inhib, or plates right now. Don't chase for style points.`;
       } else if (a.you.roleHint === "JUNGLE" && ctx.deadStr) {
-        raw = `${ctx.deadStr} are down — you start the objective and let your allies crash waves.`;
+        raw = `${namesAreDown(ctx.deadStr)} — you start the objective and let your allies crash waves.`;
       } else {
         raw = ctx.deadStr
-          ? `${ctx.deadStr} are down — take plates or the objective now. Don't chase into fog.`
+          ? `${namesAreDown(ctx.deadStr)} — take plates or the objective now. Don't chase into fog.`
           : `The map is free — take a tower or objective, not another fifty-fifty fight.`;
       }
       break;

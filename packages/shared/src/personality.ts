@@ -95,32 +95,53 @@ function stripChampPrefix(t: string): string {
   return t.replace(/^[A-Za-z][\w'.]{1,16}:\s*/, "").trim();
 }
 
+/** "Viego" → "Viego is down"; "Viego and Jhin" → "Viego and Jhin are down" */
+export function namesAreDown(who: string): string {
+  let w = who
+    .replace(/\s*\+\s*/g, " and ")
+    .replace(/\s+/g, " ")
+    .replace(/\s+are$/i, "")
+    .replace(/\s+is$/i, "")
+    .trim();
+  if (!w) return "Enemies are down";
+  const multi = /\band\b|,/.test(w) || w.split(/\s+/).length >= 3;
+  return multi ? `${w} are down` : `${w} is down`;
+}
+
 function isAlreadyHuman(t: string): boolean {
   const words = t.split(/\s+/).length;
   const hasYou = /\b(you|your|you're|yo|dude|when you)\b/i.test(t);
   const hasChampColon = /^[A-Za-z][\w'.]{1,16}:\s/.test(t);
-  // Still telegraphic source forms
+  // Still telegraphic source forms — never short-circuit these
   if (hasChampColon && words < 16) return false;
-  if (/^\d+%\s*\+?\s*\d*\s*g?\s*[—–-]/.test(t)) return false;
+  if (/^\d+%/.test(t)) return false; // "18% and 1500g — …" or "18% — …"
+  if (/^\d+g\b/i.test(t)) return false; // "1600g but …"
   if (/^(next spawn|spawn buy)\b/i.test(t)) return false;
+  if (/^(teamfight|skirmish|winning|losing)\s*[—–-]/i.test(t)) return false;
   if (/^[A-Za-z][\w'.]{1,16}:\s*\d/.test(t)) return false;
-  // "Name and Name down — action" without "are" is still semi-telegraphic
-  if (/^[\w\s+]+\s+down\s*[—–-]/i.test(t) && !/\bare\s+down\b/i.test(t) && !hasYou) {
+  // "Name down — action" without is/are is still semi-telegraphic
+  if (
+    /^[\w\s+]+\s+down\s*[—–-]/i.test(t) &&
+    !/\b(is|are)\s+down\b/i.test(t) &&
+    !hasYou
+  ) {
     return false;
   }
   // Already natural full coaching
   if (
-    /^(you |you're |yo |dude |when you |that's an |peel your |viego and |[\w]+ and [\w]+ are down)/i.test(
-      t
-    ) &&
+    /^(you |you're |yo |dude |when you |that's an |peel your |in this fight)/i.test(t) &&
     words >= 8
   ) {
     return true;
   }
-  if (hasYou && words >= 8 && !hasChampColon) return true;
-  if (/\bare down\b/i.test(t) && /take the (tower|objective)/i.test(t) && words >= 10) {
+  if (
+    /^[A-Z][\w]+ and [A-Z][\w]+ (is|are) down\b/.test(t) &&
+    words >= 12 &&
+    /[.!]| — /.test(t)
+  ) {
     return true;
   }
+  if (hasYou && words >= 12 && !hasChampColon && !/^\d/.test(t)) return true;
   return false;
 }
 
@@ -201,9 +222,36 @@ export function toNaturalTalk(
     }
   }
 
+  // ── Gold but enemies down (before "X down" so "1600g but Zed down" doesn't mis-parse) ──
+  m = body.match(/^(\d+)\s*g\s+but\s+(.+)$/i);
+  if (m) {
+    const rest = m[2].replace(/\.$/, "");
+    // If rest already names dead, keep them in the sentence
+    if (/\bdown\b/i.test(rest)) {
+      const cleaned = rest
+        .replace(/\bare are\b/gi, "are")
+        .replace(/\s+are\s+down/i, " are down")
+        .replace(/\s+down\s*[—–-]\s*/i, " are down — ");
+      // Prefer full convert language
+      if (/take/i.test(cleaned)) {
+        // Keep champion capitalization (Zed not zed)
+        return finishSentence(
+          bro
+            ? `You've got ${m[1]} gold, but ${cleaned}. Convert the map first, then base`
+            : `You have ${m[1]} gold, but ${cleaned}. Convert first, then base if you need the item`
+        );
+      }
+    }
+    return finishSentence(
+      bro
+        ? `You've got ${m[1]} gold, but ${rest}. Take the free stuff first, then base`
+        : `You have ${m[1]} gold, but ${rest}. Convert the map first, then base if you need the item`
+    );
+  }
+
   // ── "X and Y down" convert ──
   m = body.match(
-    /^(?:ACE\s*[—–-]\s*)?([\w\s+]+?)\s+down(?:\s+~?\d+s?)?\s*[—–-]\s*(.+)$/i
+    /^(?:ACE\s*[—–-]\s*)?([A-Za-z][\w\s+]*?)\s+down(?:\s+~?\d+s?)?\s*[—–-]\s*(.+)$/i
   );
   if (m || /^(ACE)\s*[—–-]\s*(.+)$/i.test(body)) {
     const aceOnly = body.match(/^(ACE)\s*[—–-]\s*(.+)$/i);
@@ -223,47 +271,39 @@ export function toNaturalTalk(
       }
     }
     if (m) {
-      let who = m[1]
-        .replace(/\s*\+\s*/g, " and ")
-        .replace(/\s+/g, " ")
-        .replace(/\s+are$/i, "")
-        .trim();
-      // Guard against re-processing "Viego and Jhin are"
-      if (/\bare\s+down\b/i.test(body) && /take the tower/i.test(body)) {
-        return finishSentence(body);
+      // Guard against re-processing already-human convert lines
+      if (/\b(is|are)\s+down\b/i.test(body) && /take (the )?(tower|objective|plates)/i.test(body)) {
+        return finishSentence(body.replace(/\bare are\b/gi, "are").replace(/\bis is\b/gi, "is"));
       }
+      const downPhrase = namesAreDown(m[1]);
       const rest = m[2];
       if (/plates|obj|tower|inhib|base|convert|free map/i.test(rest)) {
         return finishSentence(
           bro
-            ? `${who} are down — take the tower or objective. Don't chase into fog for style points`
-            : `${who} are down. Take the tower or the objective while you have the window, and don't chase into fog`
+            ? `${downPhrase} — take the tower or objective. Don't chase into fog for style points`
+            : `${downPhrase}. Take the tower or the objective while you have the window, and don't chase into fog`
         );
       }
       if (/start obj|set the obj|YOU start/i.test(rest)) {
         return finishSentence(
           bro
-            ? `${who} are down — you start the objective and let your team crash waves into it`
-            : `${who} are down. Start the objective yourself and have your allies crash waves`
+            ? `${downPhrase} — you start the objective and let your team crash waves into it`
+            : `${downPhrase}. Start the objective yourself and have your allies crash waves`
         );
       }
       if (/DPS|max range|finish|charm|collapse|zone/i.test(rest)) {
         const action = rest.replace(/\.$/, "").replace(/^then\s+/i, "");
         return finishSentence(
-          `${who} are down. ${capitalize(action.toLowerCase())}, then convert — don't overstay`
+          `${downPhrase}. ${capitalize(action.toLowerCase())}, then convert — don't overstay`
+        );
+      }
+      // Generic "X down — rest"
+      if (rest.length > 4) {
+        return finishSentence(
+          `${downPhrase}. ${capitalize(rest.replace(/\.$/, ""))}`
         );
       }
     }
-  }
-
-  // ── Gold but enemies down (numbers kind) ──
-  m = body.match(/^(\d+)g\s+but\s+(.+)$/i);
-  if (m) {
-    return finishSentence(
-      bro
-        ? `You've got ${m[1]} gold, but ${m[2].replace(/\.$/, "")}. Take the free stuff first, then base`
-        : `You have ${m[1]} gold, but ${m[2].replace(/\.$/, "")}. Convert the map first, then base if you need the item`
-    );
   }
 
   // ── Death / spawn plans ──
@@ -355,10 +395,15 @@ export function toNaturalTalk(
       .replace(/\s*→\s*/g, " into ")
       .replace(/\.$/, "")
       .replace(/\s+when they (waste|burn).+$/i, "")
+      .replace(/\s+for finish$/i, "")
       .trim();
-    // Shorten long ability chains for speech
-    if (combo.split(/\s+/).length > 12) {
-      combo = combo.split(/\s+/).slice(0, 10).join(" ");
+    // Prefer short opener for speech (first two steps)
+    const parts = combo.split(/\s+into\s+/i);
+    if (parts.length > 2) {
+      combo = `${parts[0]} into ${parts[1]}`;
+    }
+    if (combo.split(/\s+/).length > 8) {
+      combo = combo.split(/\s+/).slice(0, 7).join(" ");
     }
     return finishSentence(
       bro
@@ -368,7 +413,60 @@ export function toNaturalTalk(
   }
   // Already "You just hit N" — don't re-expand
   if (/^you just hit \d+/i.test(body)) {
-    return finishSentence(body.replace(/\s+when they waste a spell\s+when they waste a spell/gi, " when they waste a spell"));
+    return finishSentence(
+      body.replace(/\s+when they waste a spell(\s+when they waste a spell)+/gi, " when they waste a spell")
+    );
+  }
+
+  // ── Teamfight / mid-fight fragments ──
+  m = body.match(/^(?:teamfight|skirmish|winning|losing)\s*[—–-]\s*(.+)$/i);
+  if (m) {
+    const rest = m[1].replace(/\.$/, "");
+    if (/look\s+(.+?)\s+on\s+(\w+)/i.test(rest)) {
+      const mm = rest.match(/look\s+(.+?)\s+on\s+(\w+)/i)!;
+      return finishSentence(
+        bro
+          ? `In this fight, look for ${mm[1]} on ${mm[2]} — and leave if they turn`
+          : `In this fight, look for ${mm[1]} on ${mm[2]}, and leave if they turn on you`
+      );
+    }
+    if (/bodyblock for (\w+)/i.test(rest)) {
+      const who = rest.match(/bodyblock for (\w+)/i)![1];
+      return finishSentence(
+        `Bodyblock for ${who} and keep the threat off them — you're the wall right now`
+      );
+    }
+    return finishSentence(
+      bro
+        ? `In this fight, ${rest.charAt(0).toLowerCase()}${rest.slice(1)}`
+        : `In this fight, ${rest.charAt(0).toLowerCase()}${rest.slice(1)}`
+    );
+  }
+
+  // ── "secondary on X" / path X ──
+  m = body.match(/^secondary on (\w+)\.?\s*(.*)$/i);
+  if (m) {
+    return finishSentence(
+      bro
+        ? `Play secondary on ${m[1]} — first-in is how you int this`
+        : `Play as a secondary engage on ${m[1]}. Going first is how you throw this fight`
+    );
+  }
+  m = body.match(/^path (\w+)\.?\s*(.*)$/i);
+  if (m) {
+    return finishSentence(
+      `Path onto ${m[1]}. Only flash if the kill is free`
+    );
+  }
+
+  // ── NvM leave ──
+  m = body.match(/^(\d+)\s*v\s*(\d+)\s*[—–-]\s*(.+)$/i);
+  if (m) {
+    return finishSentence(
+      bro
+        ? `It's ${m[1]} versus ${m[2]} — ${m[3].replace(/\.$/, "").toLowerCase()}`
+        : `You're in a ${m[1]} versus ${m[2]}. ${capitalize(m[3].replace(/\.$/, ""))}`
+    );
   }
 
   // ── Obj clock ──
@@ -443,6 +541,11 @@ export function toNaturalTalk(
       ? `Right now ${body.charAt(0).toLowerCase()}${body.slice(1)}`
       : `Right now, ${body.charAt(0).toLowerCase()}${body.slice(1)}`;
   }
+  // Fix single-name "are down" grammar leftovers (never touch "X and Y are down")
+  if (!/\band\b/i.test(body)) {
+    body = body.replace(/\b([A-Z][a-z]+)\s+are down\b/g, "$1 is down");
+  }
+  body = body.replace(/\bare are\b/gi, "are").replace(/\bis is\b/gi, "is");
   body = capitalize(body);
   return finishSentence(body);
 }
