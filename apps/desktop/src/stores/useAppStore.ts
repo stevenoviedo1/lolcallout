@@ -39,6 +39,8 @@ import {
   flavorLine,
   emptyMatchMemory,
   rememberSpoken,
+  deepReasonBoard,
+  computeOracleBrain,
   type DetectedSignal,
   type CoachWatchState,
   type CoachIntensity,
@@ -205,6 +207,9 @@ export interface CoachBrainUi {
   battlePhase?: string;
   battleJob?: string;
   battleFocus?: string | null;
+  /** 0–100 oracle win prob */
+  winProb?: number;
+  confidence?: number;
 }
 
 let pollTimer: number | undefined;
@@ -249,6 +254,8 @@ function brainToUi(
     battlePhase?: string;
     battleJob?: string;
     battleFocus?: string | null;
+    winProb?: number;
+    confidence?: number;
   }
 ): CoachBrainUi {
   return {
@@ -279,6 +286,8 @@ function brainToUi(
     battlePhase: combat?.battlePhase,
     battleJob: combat?.battleJob,
     battleFocus: combat?.battleFocus,
+    winProb: combat?.winProb,
+    confidence: combat?.confidence,
   };
 }
 
@@ -894,6 +903,20 @@ export const useAppStore = create<AppState>((set, get) => ({
               liveBrain,
               { forceRefresh: false }
             );
+            let winProb: number | undefined;
+            let confidence: number | undefined;
+            try {
+              const mode = detectModeProfile({
+                gameMode: aSnap.mode,
+                mapName: get().context.mapName,
+              });
+              const deep = deepReasonBoard(aSnap, mode, getCoachPersonality());
+              const oracle = computeOracleBrain(aSnap, deep, getCoachPersonality());
+              winProb = oracle.winProb;
+              confidence = oracle.confidence;
+            } catch {
+              /* oracle optional */
+            }
             const ui = brainToUi(liveBrain, sessionLearningObjective, {
               fightLight: aSnap.fightLight,
               fightReason: aSnap.fightReason,
@@ -901,6 +924,8 @@ export const useAppStore = create<AppState>((set, get) => ({
               battlePhase: aSnap.battlePhase,
               battleJob: aSnap.battleJob,
               battleFocus: aSnap.battleFocus,
+              winProb,
+              confidence,
             });
             set({ coachBrain: ui });
           } catch {

@@ -7,6 +7,7 @@ import {
   buildStrategyPlan,
   computeCoachBrain,
   computeMatchAnalytics,
+  computeOracleBrain,
   deepReasonBoard,
   emptyMatchMemory,
   explainBestOptions,
@@ -19,6 +20,7 @@ import {
   formatFieldStateForAi,
   formatGameClock,
   formatMemoryForAi,
+  formatOracleForAi,
   formatStrategyForAi,
   parseCoachPersonality,
   personalitySystemBlock,
@@ -62,14 +64,15 @@ Use it. If SHOTCALL or BATTLE_LINE exists, that angle is usually correct — rew
 - Prefer high-% even if boring. Boring wins LP.
 
 ## What makes you irreplaceable
-1. DEEP REASON: weigh 3–4 options (EV vs risk). Pick BEST. Tell the player only the answer.
+1. ORACLE + DEEP REASON: win-prob, multi-option EV, sequence plan (now/15s/45s). Speak only the answer.
 2. READ BATTLES — next 5–20 seconds, not a lecture.
 3. Name WHO is dead and the convert (plates/obj/base).
 4. "Ult unlocked" for L6+ only — never invent CDs or fog.
-5. FIGHT_LIGHT + BATTLE job + DEEP REASON BEST are law.
+5. FIGHT_LIGHT + BATTLE job + DEEP BEST + ORACLE thesis are law.
 6. MATCH MEMORY — don't re-preach; escalate habits (x2, x3).
-7. PREDICT throws before they happen.
-8. Second-order thinking: "if we take plates, they spawn and…"; don't be first-order only.
+7. Block the NEXT_MISTAKE before it happens.
+8. Second-order thinking: after this play, what does the enemy get?
+9. Silence is coaching when ORACLE says SPEAK=no — unless the player asked.
 
 ## Consistency (tight LP curve — climb is inevitable over sample size)
 - HIGH-% PLAYS only: if you can't name the variables (man advantage, HP, CDs, spike, ally location), it's a red flag — skip or reset.
@@ -233,6 +236,7 @@ ${boardOnly || "(empty)"}`;
   let eliteBlock = "";
   let memoryBlock = "";
   let deepBlock = "";
+  let oracleBlock = "";
   try {
     let mem = emptyMatchMemory(y.championName);
     mem = updateMatchMemory(mem, context, analytics);
@@ -258,6 +262,8 @@ ${boardOnly || "(empty)"}`;
       eliteBlock = formatEliteForAi(elite, mem);
       const deep = deepReasonBoard(analytics, mode, personality);
       deepBlock = formatDeepReasonForAi(deep);
+      const oracle = computeOracleBrain(analytics, deep, personality);
+      oracleBlock = formatOracleForAi(oracle);
     }
   } catch {
     /* optional */
@@ -286,6 +292,8 @@ ${battleBlock}
 
 ${deepBlock}
 
+${oracleBlock}
+
 ${memoryBlock}
 
 ${eliteBlock}
@@ -296,15 +304,15 @@ ${brief.text}
 ## Local fallback (improve if wrong for role/board; pick best competing option)
 ${brief.fallback}
 
-## Coaching law
-- DEEP REASONING BEST is the default answer unless board data clearly contradicts it
-- If BATTLE_PHASE ≠ idle: coach the FIGHT first (job/focus/peel/disengage)
+## Coaching law (premium)
+- ORACLE thesis + DEEP REASON BEST are the default unless board data contradicts
+- Use SEQUENCE for multi-step plans (now → 15s → 45s) when answering what-now
+- Block NEXT_MISTAKE_TO_BLOCK explicitly when relevant
+- If BATTLE_PHASE ≠ idle: coach the FIGHT first
 - Name dead champs + ult-unlocked threats + FOCUS when fighting
-- YOUR_LAST_KILLER → death tips must respect them
-- MATCH MEMORY habits → subtract, don't ignore
-- Think in options (EV vs risk) — speak only the chosen play
+- Think in EV vs risk — speak only the chosen play (never dump option lists)
 - NEVER reuse RECENT_SPOKEN wording
-- Bro mode: normal talk. Friend: clear and calm. Always name the next play.`;
+- Bro: normal talk. Friend: clear and calm. Always name the next play.`;
 }
 
 /** Inject competing options so the model sees choice, not a single fallback */
@@ -329,7 +337,7 @@ export function intentHint(
 
   switch (intent) {
     case "what_now":
-      return `${talk} Use DEEP REASONING: compare options mentally (commit vs leave vs convert vs farm). Pick BEST by EV. Name board facts. Speak only the answer — not a list of options.`;
+      return `${talk} Use ORACLE + DEEP REASON: win-prob, EV options, sequence (now→15s→45s). Pick BEST. Optionally name the mistake to avoid. Speak only the answer — not a list of options.`;
     case "item":
       return `${talk} Buy/base from gold + spike. Permission to leave the wave.`;
     case "roam":

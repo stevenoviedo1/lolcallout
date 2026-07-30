@@ -367,6 +367,15 @@ export default function App() {
                         {coachBrain.fightRole}
                       </>
                     )}
+                    {typeof coachBrain.winProb === "number" ? (
+                      <>
+                        <span className="brain-strip-sep">·</span>
+                        {coachBrain.winProb}%
+                        {typeof coachBrain.confidence === "number"
+                          ? ` c${coachBrain.confidence}`
+                          : ""}
+                      </>
+                    ) : null}
                   </span>
                 </div>
               )}

@@ -19,6 +19,8 @@ import {
   pickSpeakableInsight,
 } from "../packages/shared/dist/insights.js";
 import { isObviousLine } from "../packages/shared/dist/coachLines.js";
+import { deepReasonBoard } from "../packages/shared/dist/deepReason.js";
+import { computeOracleBrain } from "../packages/shared/dist/oracleBrain.js";
 
 function you(o = {}) {
   return {
@@ -316,6 +318,8 @@ for (const s of scenarios) {
     gameMode: s.ctx.gameMode,
     mapName: s.ctx.mapName,
   });
+  const deep = deepReasonBoard(a, mode, "hype");
+  const oracle = a ? computeOracleBrain(a, deep, "hype") : null;
   const elite = synthesizeEliteCallouts({
     ctx: s.ctx,
     analytics: a,
@@ -348,6 +352,19 @@ for (const s of scenarios) {
     "threat",
     b?.primaryThreat
   );
+  console.log(
+    "oracle: winP",
+    oracle?.winProb,
+    "conf",
+    oracle?.confidence,
+    "speak",
+    oracle?.shouldSpeak,
+    "best",
+    deep?.best?.id,
+    "net",
+    deep?.best?.net
+  );
+  console.log("seq:", oracle?.sequence?.map((s) => `[${s.t}] ${s.action}`).join(" → "));
   console.log("light", a?.fightLight, "man", a?.manAdvantage, "hp", a?.you?.hpPct?.toFixed?.(0));
   console.log("LINE:", line);
   console.log(

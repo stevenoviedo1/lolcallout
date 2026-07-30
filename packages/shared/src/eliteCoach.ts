@@ -18,6 +18,7 @@ import {
 import { flavorLine, type CoachPersonality } from "./personality.js";
 import { makeShotcall, polishShotcall } from "./shotcall.js";
 import { deepReasonBoard } from "./deepReason.js";
+import { computeOracleBrain } from "./oracleBrain.js";
 
 export type ElitePriority =
   | "critical" // death, hp
@@ -119,7 +120,7 @@ export function synthesizeEliteCallouts(opts: {
     out.push({ priority, score, kind, line: L, reason, edge, signature });
   };
 
-  // ── DEEP REASON (multi-option EV — only when the board is decision-rich) ──
+  // ── DEEP REASON + ORACLE (premium multi-option EV + win-prob sequence) ──
   try {
     const interesting =
       a.you.isDead ||
@@ -133,22 +134,27 @@ export function synthesizeEliteCallouts(opts: {
       (a.you.gold >= 1200 && !mode.noRecall) ||
       Math.abs(a.manAdvantage) >= 2;
     const deep = deepReasonBoard(a, mode, personality);
-    // Require clear winner (net edge over runner-up) so quiet boards stay silent
+    const oracle = deep ? computeOracleBrain(a, deep, personality) : null;
     const edge =
       deep && deep.runnerUp ? deep.best.net - deep.runnerUp.net : deep ? deep.best.net : 0;
-    if (deep?.speak && interesting && (edge >= 8 || deep.best.net >= 60)) {
+
+    // Oracle silence discipline — stay quiet on low-edge quiet boards
+    if (oracle && !oracle.shouldSpeak && !a.you.isDead) {
+      // do not add deep/oracle speak
+    } else if (deep?.speak && interesting && (edge >= 8 || deep.best.net >= 60)) {
+      const confBoost = oracle ? Math.min(8, Math.floor(oracle.confidence / 15)) : 0;
       add(
         deep.best.net >= 55 ? "critical" : "battle",
-        Math.min(112, 88 + Math.max(0, Math.floor(deep.best.net / 8))),
+        Math.min(114, 88 + Math.max(0, Math.floor(deep.best.net / 8)) + confBoost),
         "shotcall",
-        deep.speak,
-        `deep:${deep.best.id} net=${deep.best.net}`,
-        "multi-option EV deep reason",
+        oracle?.speak || deep.speak,
+        `deep:${deep.best.id} net=${deep.best.net} winP=${oracle?.winProb ?? "?"}%`,
+        "oracle+EV deep reason",
         `deep:${deep.best.id}:${Math.floor(a.clockSec / 6)}`
       );
     }
   } catch {
-    /* deep optional */
+    /* deep/oracle optional */
   }
 
   // ── SHOTCALL (merged tactical line) ──

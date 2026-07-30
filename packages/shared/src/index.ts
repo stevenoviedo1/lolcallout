@@ -431,6 +431,13 @@ export {
   type ReasonOption,
 } from "./deepReason.js";
 export {
+  computeOracleBrain,
+  estimateWinProb,
+  formatOracleForAi,
+  type OracleBrain,
+  type SequenceStep,
+} from "./oracleBrain.js";
+export {
   computeCoachBrain,
   applyBrainToOptions,
   formatBrainForAi,
