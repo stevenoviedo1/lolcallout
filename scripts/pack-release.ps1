@@ -16,10 +16,10 @@ New-Item -ItemType Directory -Path "$pack\server\api" -Force | Out-Null
 New-Item -ItemType Directory -Path "$pack\server\agent" -Force | Out-Null
 New-Item -ItemType Directory -Path "$pack\ui" -Force | Out-Null
 
-Write-Host "==> Copying server bundles (js only — strip maps/types for faster install)" -ForegroundColor Cyan
+Write-Host "==> Copying server bundles (js only - strip maps/types for faster install)" -ForegroundColor Cyan
 Copy-Item "$root\apps\api\dist\*" "$pack\server\api\" -Recurse -Force
 Copy-Item "$root\apps\agent\dist\*" "$pack\server\agent\" -Recurse -Force
-# Drop .map / .d.ts from our dist — they bloat file count for Defender + NSIS
+# Drop .map / .d.ts from our dist - they bloat file count for Defender + NSIS
 Get-ChildItem -Path "$pack\server\api","$pack\server\agent" -Recurse -Include *.map,*.d.ts,*.d.ts.map -ErrorAction SilentlyContinue | Remove-Item -Force
 
 $serverPkg = @'
