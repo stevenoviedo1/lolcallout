@@ -210,7 +210,21 @@ export async function endSession(
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ context, result }),
   });
-  if (!res.ok) throw new Error(`End session ${res.status}`);
+  if (!res.ok) {
+    let parsed: { error?: string; code?: string; upgradeUrl?: string } = {};
+    try {
+      parsed = (await res.json()) as typeof parsed;
+    } catch {
+      /* ignore */
+    }
+    if (res.status === 402 || parsed.code === "MEMBERSHIP_REQUIRED") {
+      throw new MembershipRequiredError(
+        parsed.error || "Membership required for AI post-game",
+        parsed.upgradeUrl
+      );
+    }
+    throw new Error(parsed.error || `End session ${res.status}`);
+  }
   return res.json();
 }
 

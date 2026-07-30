@@ -20,7 +20,7 @@ import { changePassword, isStrongPassword } from "./lib/authApi";
 import { resetCoachVoice, setLayoutPersisted, useAppStore } from "./stores/useAppStore";
 
 export default function App({
-  membershipActive = true,
+  membershipActive = false,
   onUpgrade,
 }: {
   membershipActive?: boolean;
