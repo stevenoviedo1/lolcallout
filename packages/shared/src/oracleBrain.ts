@@ -271,12 +271,18 @@ export function computeOracleBrain(
   const kit = getChampKit(a.you.champ);
   const step0 = sequence[0]?.action || deep?.speak || "Play the next high-% decision";
   let speak = deep?.speak || `${a.you.champ}: ${step0}`;
-  // Death: attach short second beat when speak is tight (spawn plan = multi-step)
-  if (a.you.isDead && sequence[1] && speak.split(/\s+/).length <= 16) {
+  // Death: attach short second beat only if the full line stays speakable
+  if (a.you.isDead && sequence[1] && speak.split(/\s+/).length <= 12) {
     const s2 = sequence[1].action;
-    const snippet = s2.length > 36 ? s2.slice(0, 34).replace(/\s+\S*$/, "") : s2;
-    if (snippet && !speak.toLowerCase().includes(snippet.toLowerCase().slice(0, 10))) {
-      speak = `${speak.replace(/[.!?]$/, "")} — then ${snippet.charAt(0).toLowerCase()}${snippet.slice(1)}.`;
+    // Prefer a tight tail, never a cut-off clause
+    let snippet = s2;
+    if (/rejoin with 2/i.test(s2)) snippet = "wait for two allies";
+    else if (/group mid/i.test(s2)) snippet = "group mid";
+    else if (/clear vision/i.test(s2)) snippet = "clear vision first";
+    else snippet = s2.split(/[.—]/)[0].trim().slice(0, 28);
+    const merged = `${speak.replace(/[.!?]$/, "")} — then ${snippet}.`;
+    if (merged.split(/\s+/).length <= 20) {
+      speak = merged;
     }
   }
   // Premium polish: attach second step lightly when confident and short

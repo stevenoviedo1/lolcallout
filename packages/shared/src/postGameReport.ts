@@ -140,12 +140,18 @@ function nextLo(
   deathReport: DeathPatternReport | null | undefined,
   stickyLo?: string | null
 ): string {
-  if (stickyLo?.trim() && !/structural variable|one sticky/i.test(stickyLo)) {
-    return stickyLo.trim();
-  }
-  if (habits[0]) return habits[0].fix;
+  // Prefer concrete habit fix over a bare pattern word (e.g. "overchase")
+  if (habits[0]?.fix) return habits[0].fix;
   if (deathReport?.dominant) {
-    return `Break ${deathReport.dominant} — name the fix before each fight.`;
+    return `Break ${deathReport.dominant} — different entry, wait for two, no same path.`;
+  }
+  if (stickyLo?.trim() && !/structural variable|one sticky/i.test(stickyLo)) {
+    const s = stickyLo.trim();
+    // Expand one-word death patterns into a real LO
+    if (/^(overchase|facecheck|greedy|tilt|solo)$/i.test(s)) {
+      return `Break ${s} — name the high-% exit before you walk in.`;
+    }
+    if (s.split(/\s+/).length >= 4) return s;
   }
   if (leaks[0] && !/no hard leak/i.test(leaks[0])) {
     return `Kill this leak: ${leaks[0].slice(0, 60)}`;
