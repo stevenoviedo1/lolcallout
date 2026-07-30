@@ -376,6 +376,12 @@ export default function App() {
                           : ""}
                       </>
                     ) : null}
+                    {coachBrain.primaryThreat ? (
+                      <>
+                        <span className="brain-strip-sep">·</span>
+                        ⚠{coachBrain.primaryThreat}
+                      </>
+                    ) : null}
                   </span>
                 </div>
               )}

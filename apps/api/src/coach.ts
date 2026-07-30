@@ -341,6 +341,14 @@ export function coachAiStatus() {
     reasonModel: reason.model,
     reasoningEffort: reason.reasoningEffort,
     premium: true,
+    brains: [
+      "oracle",
+      "deep_reason",
+      "tactical",
+      "battle_reader",
+      "elite",
+      "match_memory",
+    ] as const,
   };
 }
 

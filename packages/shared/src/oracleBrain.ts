@@ -76,17 +76,32 @@ function buildSequence(a: MatchAnalytics, deep: DeepReasoning | null): SequenceS
   const bestId = deep?.best.id;
 
   if (a.you.isDead) {
+    const g = a.you.gold;
+    const bestId = deep?.best.id;
     steps.push({
       t: "spawn",
-      action: a.yourLastKiller
-        ? `Respect ${a.yourLastKiller} — different entry path`
-        : "Buy if needed, take nearest safe wave",
+      action:
+        bestId === "spawn_buy" || (g >= 900 && !a.noRecall)
+          ? `Buy ${g}g if needed, then safe wave`
+          : a.yourLastKiller
+            ? `Respect ${a.yourLastKiller} — different entry path`
+            : "Take nearest safe wave — no force",
       why: "Stop the double",
     });
     steps.push({
-      t: "45s",
-      action: "Only rejoin with 2+ allies or clear vision first",
+      t: "15s",
+      action:
+        a.pressure === "winning" && a.minute >= 20
+          ? "Group mid with team — convert the lead"
+          : "Only rejoin with 2+ allies or clear vision first",
       why: "Numbers before ego",
+    });
+    steps.push({
+      t: "45s",
+      action: a.objectiveWindows[0]
+        ? `Prep next: ${a.objectiveWindows[0].split("—")[0].trim()}`
+        : "Own a side wave, then look for one high-% fight",
+      why: "Second-order plan after re-entry",
     });
     return steps;
   }
@@ -246,8 +261,17 @@ export function computeOracleBrain(
   const kit = getChampKit(a.you.champ);
   const step0 = sequence[0]?.action || deep?.speak || "Play the next high-% decision";
   let speak = deep?.speak || `${a.you.champ}: ${step0}`;
+  // Death: attach short second beat when speak is tight (spawn plan = multi-step)
+  if (a.you.isDead && sequence[1] && speak.split(/\s+/).length <= 16) {
+    const s2 = sequence[1].action;
+    const snippet = s2.length > 36 ? s2.slice(0, 34).replace(/\s+\S*$/, "") : s2;
+    if (snippet && !speak.toLowerCase().includes(snippet.toLowerCase().slice(0, 10))) {
+      speak = `${speak.replace(/[.!?]$/, "")} — then ${snippet.charAt(0).toLowerCase()}${snippet.slice(1)}.`;
+    }
+  }
   // Premium polish: attach second step lightly when confident and short
   if (
+    !a.you.isDead &&
     shouldSpeak &&
     sequence[1] &&
     confidence >= 72 &&
@@ -258,6 +282,10 @@ export function computeOracleBrain(
     if (s2 && !speak.toLowerCase().includes(s2.toLowerCase().slice(0, 12))) {
       // keep separate — speak stays primary; sequence is for AI
     }
+  }
+  // Cap voice length after multi-step attach
+  if (speak.split(/\s+/).length > 22) {
+    speak = speak.split(/\s+/).slice(0, 20).join(" ").replace(/[,;:]$/, "") + ".";
   }
   if (personality === "hype") {
     speak = toNaturalTalk(speak, "hype");

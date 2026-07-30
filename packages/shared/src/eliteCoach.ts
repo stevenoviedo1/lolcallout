@@ -19,6 +19,7 @@ import { flavorLine, type CoachPersonality } from "./personality.js";
 import { makeShotcall, polishShotcall } from "./shotcall.js";
 import { deepReasonBoard } from "./deepReason.js";
 import { computeOracleBrain } from "./oracleBrain.js";
+import { computeTacticalBrain } from "./tacticalBrain.js";
 
 export type ElitePriority =
   | "critical" // death, hp
@@ -122,39 +123,73 @@ export function synthesizeEliteCallouts(opts: {
 
   // ── DEEP REASON + ORACLE (premium multi-option EV + win-prob sequence) ──
   try {
-    const interesting =
-      a.you.isDead ||
-      (a.you.hpPct != null && a.you.hpPct < 35) ||
-      a.battlePhase !== "idle" ||
-      a.battleHeat >= 30 ||
-      a.fightLight === "green" ||
-      a.fightLight === "red" ||
-      a.enemy.dead >= 1 ||
-      a.team.dead >= 2 ||
-      (a.you.gold >= 1200 && !mode.noRecall) ||
-      Math.abs(a.manAdvantage) >= 2;
     const deep = deepReasonBoard(a, mode, personality);
     const oracle = deep ? computeOracleBrain(a, deep, personality) : null;
     const edge =
       deep && deep.runnerUp ? deep.best.net - deep.runnerUp.net : deep ? deep.best.net : 0;
 
-    // Oracle silence discipline — stay quiet on low-edge quiet boards
-    if (oracle && !oracle.shouldSpeak && !a.you.isDead) {
-      // do not add deep/oracle speak
-    } else if (deep?.speak && interesting && (edge >= 8 || deep.best.net >= 60)) {
-      const confBoost = oracle ? Math.min(8, Math.floor(oracle.confidence / 15)) : 0;
+    // DEATH: oracle/deep always kind=death at max priority — never compete as battle
+    if (a.you.isDead && (oracle?.speak || deep?.speak)) {
+      const line = oracle?.speak || deep!.speak;
       add(
-        deep.best.net >= 55 ? "critical" : "battle",
-        Math.min(114, 88 + Math.max(0, Math.floor(deep.best.net / 8)) + confBoost),
-        "shotcall",
-        oracle?.speak || deep.speak,
-        `deep:${deep.best.id} net=${deep.best.net} winP=${oracle?.winProb ?? "?"}%`,
-        "oracle+EV deep reason",
-        `deep:${deep.best.id}:${Math.floor(a.clockSec / 6)}`
+        "critical",
+        130,
+        "death",
+        line,
+        `death oracle winP=${oracle?.winProb ?? "?"}% seq=${oracle?.sequence?.[0]?.action || "spawn"}`,
+        "oracle spawn plan after death (hard priority)",
+        `death:oracle:${a.you.kda}:${a.yourLastKiller || ""}`
       );
+    } else if (oracle && !oracle.shouldSpeak) {
+      // silence discipline — quiet low-edge boards
+    } else if (deep?.speak) {
+      const interesting =
+        (a.you.hpPct != null && a.you.hpPct < 35) ||
+        a.battlePhase !== "idle" ||
+        a.battleHeat >= 30 ||
+        a.fightLight === "green" ||
+        a.fightLight === "red" ||
+        a.enemy.dead >= 1 ||
+        a.team.dead >= 2 ||
+        (a.you.gold >= 1200 && !mode.noRecall) ||
+        Math.abs(a.manAdvantage) >= 2;
+      if (interesting && (edge >= 8 || deep.best.net >= 60)) {
+        const confBoost = oracle ? Math.min(8, Math.floor(oracle.confidence / 15)) : 0;
+        // Cap below death (130) and leave room for low_hp (96+)
+        const isHp = a.you.hpPct != null && a.you.hpPct < 28;
+        add(
+          isHp || deep.best.net >= 55 ? "critical" : "battle",
+          Math.min(isHp ? 112 : 108, 86 + Math.max(0, Math.floor(deep.best.net / 8)) + confBoost),
+          isHp ? "low_hp" : "shotcall",
+          oracle?.speak || deep.speak,
+          `deep:${deep.best.id} net=${deep.best.net} winP=${oracle?.winProb ?? "?"}%`,
+          "oracle+EV deep reason",
+          `deep:${deep.best.id}:${Math.floor(a.clockSec / 6)}`
+        );
+      }
     }
   } catch {
     /* deep/oracle optional */
+  }
+
+  // ── TACTICAL BRAIN (threat rank / combo / shutdown / convert timer) ──
+  try {
+    if (!a.you.isDead) {
+      const tac = computeTacticalBrain(a, mode);
+      if (tac.speak && tac.score >= 56) {
+        add(
+          tac.shutdownRisk || tac.score >= 76 ? "survive" : "battle",
+          Math.min(92, tac.score + 6),
+          tac.comboWindow ? "battle" : tac.shutdownRisk ? "low_hp" : "fight_window",
+          tac.speak,
+          tac.primaryThreat ? `threat=${tac.primaryThreat}` : "tactical",
+          "tactical: threat rank + combo + shutdown",
+          `tac:${tac.primaryThreat || "board"}:${Math.floor(a.clockSec / 8)}`
+        );
+      }
+    }
+  } catch {
+    /* tactical optional */
   }
 
   // ── SHOTCALL (merged tactical line) ──
@@ -213,8 +248,8 @@ export function synthesizeEliteCallouts(opts: {
     );
   }
 
-  // ── DEATH ──
-  if (a.you.isDead) {
+  // ── DEATH (fallback if oracle path failed quality) ──
+  if (a.you.isDead && !out.some((o) => o.kind === "death")) {
     const killer = a.yourLastKiller;
     const habit = habits[0];
     let line = craftCoachLine(a, "death", mode, habit?.label);
@@ -223,7 +258,7 @@ export function synthesizeEliteCallouts(opts: {
     }
     add(
       "critical",
-      100,
+      125,
       "death",
       polishLine(line, a, mode),
       "you died",

@@ -41,6 +41,7 @@ import {
   rememberSpoken,
   deepReasonBoard,
   computeOracleBrain,
+  computeTacticalBrain,
   type DetectedSignal,
   type CoachWatchState,
   type CoachIntensity,
@@ -210,6 +211,9 @@ export interface CoachBrainUi {
   /** 0–100 oracle win prob */
   winProb?: number;
   confidence?: number;
+  /** Tactical primary threat (legal board) */
+  primaryThreat?: string | null;
+  comboWindow?: string | null;
 }
 
 let pollTimer: number | undefined;
@@ -256,6 +260,8 @@ function brainToUi(
     battleFocus?: string | null;
     winProb?: number;
     confidence?: number;
+    primaryThreat?: string | null;
+    comboWindow?: string | null;
   }
 ): CoachBrainUi {
   return {
@@ -288,6 +294,8 @@ function brainToUi(
     battleFocus: combat?.battleFocus,
     winProb: combat?.winProb,
     confidence: combat?.confidence,
+    primaryThreat: combat?.primaryThreat,
+    comboWindow: combat?.comboWindow,
   };
 }
 
@@ -905,6 +913,8 @@ export const useAppStore = create<AppState>((set, get) => ({
             );
             let winProb: number | undefined;
             let confidence: number | undefined;
+            let primaryThreat: string | null | undefined;
+            let comboWindow: string | null | undefined;
             try {
               const mode = detectModeProfile({
                 gameMode: aSnap.mode,
@@ -912,10 +922,13 @@ export const useAppStore = create<AppState>((set, get) => ({
               });
               const deep = deepReasonBoard(aSnap, mode, getCoachPersonality());
               const oracle = computeOracleBrain(aSnap, deep, getCoachPersonality());
+              const tac = computeTacticalBrain(aSnap, mode);
               winProb = oracle.winProb;
               confidence = oracle.confidence;
+              primaryThreat = tac.primaryThreat;
+              comboWindow = tac.comboWindow;
             } catch {
-              /* oracle optional */
+              /* oracle/tactical optional */
             }
             const ui = brainToUi(liveBrain, sessionLearningObjective, {
               fightLight: aSnap.fightLight,
@@ -926,6 +939,8 @@ export const useAppStore = create<AppState>((set, get) => ({
               battleFocus: aSnap.battleFocus,
               winProb,
               confidence,
+              primaryThreat,
+              comboWindow,
             });
             set({ coachBrain: ui });
           } catch {

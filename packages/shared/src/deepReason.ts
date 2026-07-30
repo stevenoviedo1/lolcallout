@@ -306,55 +306,123 @@ export function deepReasonBoard(
 
 function deepReasonDeath(
   a: MatchAnalytics | null,
-  _mode: ModeProfile,
+  mode: ModeProfile,
   personality: CoachPersonality
 ): DeepReasoning | null {
   if (!a) return null;
   const c = a.you.champ;
   const killer = a.yourLastKiller;
+  const g = a.you.gold;
+  const winning = a.pressure === "winning" || a.killLead >= 3;
+  const losing = a.pressure === "losing" || a.killLead <= -3;
   const opts: ReasonOption[] = [];
+
+  // A: Safe re-entry (default high-%)
   add(
     opts,
     "spawn_safe",
     killer
       ? `Next spawn respect ${killer} — different entry`
       : `Next spawn wave first, wait for two allies`,
-    70,
-    15,
+    72,
+    14,
     ["Stops repeat death", killer ? `Accounts for ${killer}` : "Numbers first"],
     ["Slower tempo if game is ending"],
-    "Stable re-entry"
+    "Stable re-entry + habit break"
   );
+
+  // B: Buy then rejoin (when gold sits)
+  if (g >= 900 && !mode.noRecall && !a.noRecall) {
+    add(
+      opts,
+      "spawn_buy",
+      `Spawn buy ${g}g then take safe wave — no force`,
+      78,
+      12,
+      ["Item spike on spawn", "Uses pocket gold"],
+      ["If team is ending, buy may cost a second"],
+      "Spike then rejoin with numbers"
+    );
+  }
+
+  // C: Group end (only when winning hard / near end)
+  if (winning && a.minute >= 20) {
+    add(
+      opts,
+      "spawn_group_end",
+      `Spawn group mid — convert the lead, no solo side`,
+      68,
+      22,
+      ["Closes game together", "Avoids isolated shutdown"],
+      ["Ignores side wave if not careful"],
+      "End sequence"
+    );
+  }
+
+  // D: Defensive farm (when behind)
+  if (losing) {
+    add(
+      opts,
+      "spawn_stabilize",
+      `Spawn farm safe side — mosquito only, no equalizer`,
+      74,
+      16,
+      ["Stops the bleed", "Gold catches without int"],
+      ["Gives map if enemies free-hit"],
+      "Stabilize then look for one pick"
+    );
+  }
+
+  // E: Tilt force (intentionally bad — so EV shows why not)
   add(
     opts,
     "spawn_force",
     `Re-engage immediately to force`,
-    25,
-    70,
+    22,
+    78,
     ["Maybe catches someone low"],
     ["Classic tilt double", "Usually no summs"],
     "Usually a throw"
   );
+
   opts.sort((x, y) => y.net - x.net);
   const best = opts[0];
-  const speakRaw = killer
-    ? `${c}: next spawn respect ${killer} — don't take the same path in.`
-    : `${c}: next spawn take the wave and wait for two allies.`;
+  const runnerUp = opts[1] || null;
+
+  let speakRaw: string;
+  if (best.id === "spawn_buy") {
+    speakRaw = `${c}: spawn buy ${g}g — different path${killer ? `, respect ${killer}` : ""}, wave first.`;
+  } else if (best.id === "spawn_group_end") {
+    speakRaw = `${c}: spawn group mid and end — no solo side heroics.`;
+  } else if (best.id === "spawn_stabilize") {
+    speakRaw = `${c}: spawn farm safe — no equalizer all-in${killer ? `; respect ${killer}` : ""}.`;
+  } else if (killer) {
+    speakRaw = `${c}: next spawn respect ${killer} — different entry, wait for two.`;
+  } else {
+    speakRaw = `${c}: next spawn take the wave and wait for two allies.`;
+  }
   const speak = personality === "hype" ? toNaturalTalk(speakRaw, "hype") : speakRaw;
+
   return {
     question: "Best next-spawn plan after death?",
     options: opts,
     best,
-    runnerUp: opts[1],
-    decision: `Prefer safe re-entry over force. ${killer ? `Killer was ${killer}.` : ""}`,
-    ifFlips: "If team is ending nexus, group spawn and run it down together.",
+    runnerUp,
+    decision: `Prefer ${best.id} over force. ${killer ? `Killer was ${killer}.` : ""} Edge vs #2: ${runnerUp ? best.net - runnerUp.net : best.net}.`,
+    ifFlips: winning
+      ? "If team is ending nexus, group spawn and run it down together."
+      : "If team collapses, join with numbers only — no 1vX.",
     speak,
     forAi: [
       "## Deep reasoning (death)",
-      `BEST: ${best.play}`,
+      `BEST: ${best.play} (net=${best.net})`,
+      runnerUp ? `RUNNER_UP: ${runnerUp.play} (net=${runnerUp.net})` : "",
       `KILLER: ${killer || "unknown"}`,
+      `GOLD: ${g}`,
       `SPEAK_SEED: ${speak}`,
-    ].join("\n"),
+    ]
+      .filter(Boolean)
+      .join("\n"),
   };
 }
 

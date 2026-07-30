@@ -438,6 +438,14 @@ export {
   type SequenceStep,
 } from "./oracleBrain.js";
 export {
+  computeTacticalBrain,
+  rankThreats,
+  comboWindowFor,
+  formatTacticalForAi,
+  type TacticalBrain,
+  type ThreatEntry,
+} from "./tacticalBrain.js";
+export {
   computeCoachBrain,
   applyBrainToOptions,
   formatBrainForAi,

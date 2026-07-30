@@ -258,7 +258,8 @@ export function detectCoachInsights(opts: {
     if (s.kind === "death") {
       insights.push({
         kind: "death",
-        score: 100,
+        // Hard floor above any battle/shotcall (elite maps death at 130+)
+        score: 120,
         reason: "you died — habit for next spawn",
         line: speakLine("death", ctx.deathReport?.dominant || undefined, s.spokenFallback),
         signature: `death:${you.deaths}:${ctx.deathReport?.dominant || ""}`,
@@ -883,8 +884,21 @@ export function pickSpeakableInsight(
   intensity: CoachIntensity = "normal"
 ): CoachInsight | null {
   const t = thresholdFor(intensity);
+  // Hard priority: death always beats battle/shotcall when present
+  const deaths = insights.filter((i) => i.kind === "death" && i.score >= Math.max(t, 50));
+  if (deaths.length) {
+    deaths.sort((x, y) => y.score - x.score);
+    return deaths[0];
+  }
+  // Soft priority: critical low_hp over pure convert chatter when scores are close
   const best = insights[0];
   if (!best || best.score < t) return null;
+  if (best.kind === "battle" || best.kind === "brain_window") {
+    const hp = insights.find(
+      (i) => i.kind === "low_hp" && i.score >= t && i.score >= best.score - 12
+    );
+    if (hp) return hp;
+  }
   return best;
 }
 

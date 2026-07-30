@@ -8,7 +8,9 @@ import {
   computeCoachBrain,
   computeMatchAnalytics,
   computeOracleBrain,
+  computeTacticalBrain,
   deepReasonBoard,
+  formatTacticalForAi,
   emptyMatchMemory,
   explainBestOptions,
   formatAnalyticsForAi,
@@ -237,6 +239,7 @@ ${boardOnly || "(empty)"}`;
   let memoryBlock = "";
   let deepBlock = "";
   let oracleBlock = "";
+  let tacticalBlock = "";
   try {
     let mem = emptyMatchMemory(y.championName);
     mem = updateMatchMemory(mem, context, analytics);
@@ -264,6 +267,8 @@ ${boardOnly || "(empty)"}`;
       deepBlock = formatDeepReasonForAi(deep);
       const oracle = computeOracleBrain(analytics, deep, personality);
       oracleBlock = formatOracleForAi(oracle);
+      const tac = computeTacticalBrain(analytics, mode);
+      tacticalBlock = formatTacticalForAi(tac);
     }
   } catch {
     /* optional */
@@ -294,6 +299,8 @@ ${deepBlock}
 
 ${oracleBlock}
 
+${tacticalBlock}
+
 ${memoryBlock}
 
 ${eliteBlock}
@@ -308,6 +315,8 @@ ${brief.fallback}
 - ORACLE thesis + DEEP REASON BEST are the default unless board data contradicts
 - Use SEQUENCE for multi-step plans (now → 15s → 45s) when answering what-now
 - Block NEXT_MISTAKE_TO_BLOCK explicitly when relevant
+- TACTICAL: honor PRIMARY_THREAT, COMBO_WINDOW, SHUTDOWN_RISK, CONVERT_SECONDS
+- If player is DEAD: only spawn-plan coaching (kind death) — never mid-fight chatter
 - If BATTLE_PHASE ≠ idle: coach the FIGHT first
 - Name dead champs + ult-unlocked threats + FOCUS when fighting
 - Think in EV vs risk — speak only the chosen play (never dump option lists)
