@@ -21,18 +21,49 @@ function client(): OpenAI {
   });
 }
 
-const model = (intent?: ChatRequest["intent"]) => {
-  // Prefer strongest available model for hard reasoning; callouts can use a faster alias
+/** Premium dual-model routing (state of the art) */
+export type ReasoningEffort = "low" | "medium" | "high";
+
+export function coachModelConfig(intent?: ChatRequest["intent"]): {
+  model: string;
+  reasoningEffort: ReasoningEffort | null;
+  tier: "callout" | "reason";
+} {
+  // Fast path: live automatic callouts (~sub-second)
+  // Default non-reasoning 4.20 for latency; override with XAI_CALLOUT_MODEL
   if (intent === "callout") {
-    return (
-      process.env.XAI_CALLOUT_MODEL ||
-      process.env.XAI_MODEL ||
-      "grok-4.5"
-    );
+    return {
+      model:
+        process.env.XAI_CALLOUT_MODEL ||
+        process.env.XAI_FAST_MODEL ||
+        "grok-4.20-0309-non-reasoning",
+      reasoningEffort: null,
+      tier: "callout",
+    };
   }
-  // what_now / death / summary get the primary brain
-  return process.env.XAI_REASON_MODEL || process.env.XAI_MODEL || "grok-4.5";
-};
+
+  // Deep path: what_now / death / summary / free — flagship + reasoning effort
+  const hard =
+    intent === "summary" ||
+    intent === "why_die" ||
+    intent === "what_now" ||
+    intent === "champ_select";
+  const effort = (
+    process.env.XAI_REASONING_EFFORT ||
+    (hard ? "high" : "medium")
+  ).toLowerCase() as ReasoningEffort;
+  const safeEffort: ReasoningEffort =
+    effort === "low" || effort === "medium" || effort === "high" ? effort : "high";
+
+  return {
+    model: process.env.XAI_REASON_MODEL || process.env.XAI_MODEL || "grok-4.5",
+    // grok-4.5 accepts reasoning_effort on chat completions
+    reasoningEffort: process.env.XAI_DISABLE_REASONING === "1" ? null : safeEffort,
+    tier: "reason",
+  };
+}
+
+const model = (intent?: ChatRequest["intent"]) => coachModelConfig(intent).model;
 
 function isDeathCoaching(req: ChatRequest, context?: GameContext): boolean {
   if (req.intent === "why_die") return true;
@@ -257,27 +288,64 @@ export async function* streamCoachReply(
   // Lower temp on hard decisions; slightly higher for bro chat flavor
   const temperature =
     req.intent === "summary"
-      ? 0.4
-      : isLiveCue
+      ? 0.35
+      : req.intent === "callout"
         ? bro
-          ? 0.45
-          : 0.28
-        : bro
-          ? 0.55
-          : 0.4;
+          ? 0.5
+          : 0.3
+        : isLiveCue
+          ? bro
+            ? 0.4
+            : 0.25
+          : bro
+            ? 0.5
+            : 0.35;
 
-  const stream = await openai.chat.completions.create({
-    model: model(req.intent),
+  const cfg = coachModelConfig(req.intent);
+  // Build request with xAI-specific premium fields (typed loosely for vendor params)
+  const createParams: Record<string, unknown> = {
+    model: cfg.model,
     stream: true,
     temperature,
     max_tokens: maxTokens,
     messages,
-  });
+  };
+
+  // Premium: enable xAI reasoning effort on the deep path (grok-4.5+)
+  if (cfg.reasoningEffort) {
+    createParams.reasoning_effort = cfg.reasoningEffort;
+  }
+
+  // Sticky cache key for better prompt-cache hits across coach requests
+  if (process.env.XAI_PROMPT_CACHE !== "0") {
+    createParams.prompt_cache_key =
+      process.env.XAI_PROMPT_CACHE_KEY || "lolcallout-coach-v2";
+  }
+
+  const stream = (await openai.chat.completions.create(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    createParams as any
+  )) as AsyncIterable<{
+    choices?: { delta?: { content?: string | null } }[];
+  }>;
 
   for await (const chunk of stream) {
-    const delta = chunk.choices[0]?.delta?.content;
+    const delta = chunk.choices?.[0]?.delta?.content;
     if (delta) yield delta;
   }
+}
+
+/** Public model routing snapshot for /health */
+export function coachAiStatus() {
+  const callout = coachModelConfig("callout");
+  const reason = coachModelConfig("what_now");
+  return {
+    configured: Boolean(process.env.XAI_API_KEY),
+    calloutModel: callout.model,
+    reasonModel: reason.model,
+    reasoningEffort: reason.reasoningEffort,
+    premium: true,
+  };
 }
 
 export function parseSummaryBullets(raw: string): {

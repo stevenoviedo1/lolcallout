@@ -26,7 +26,7 @@ import {
   setSummary,
 } from "./store.js";
 import { gradeMatch, DEFAULT_GOALS, type SessionGoal } from "@riftcoach/shared";
-import { parseSummaryBullets, streamCoachReply } from "./coach.js";
+import { coachAiStatus, parseSummaryBullets, streamCoachReply } from "./coach.js";
 import { synthesizeSpeech, ttsStatus, type TtsProvider } from "./tts.js";
 import {
   applyCheckoutEntitlement,
@@ -145,11 +145,13 @@ registerAuthRoutes(app);
 
 app.get("/health", (_req, res) => {
   const store = getAuthStoreInfo();
+  const ai = coachAiStatus();
   res.json({
     ok: true,
     service: "lolcallout-api",
-    aiConfigured: Boolean(process.env.XAI_API_KEY),
-    model: process.env.XAI_MODEL || "grok-4.5",
+    aiConfigured: ai.configured,
+    model: ai.reasonModel,
+    ai,
     tts: ttsStatus(),
     stripe: stripeEnabled(),
     auth: true,

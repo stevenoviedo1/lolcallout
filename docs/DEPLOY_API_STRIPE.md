@@ -67,9 +67,12 @@ STRIPE_PRICE_FOUNDERS=price_...
 FOUNDERS_ACCESS_MONTHS=6
 APP_URL=https://lolcallout.com
 
-# AI (needed for coach; checkout still works without it)
+# AI — premium dual-model path (needed for coach; checkout still works without it)
 XAI_API_KEY=...
 XAI_MODEL=grok-4.5
+XAI_REASON_MODEL=grok-4.5
+XAI_REASONING_EFFORT=high
+XAI_CALLOUT_MODEL=grok-4.20-0309-non-reasoning
 XAI_TTS_VOICE=leo
 TTS_PROVIDER=xai
 
