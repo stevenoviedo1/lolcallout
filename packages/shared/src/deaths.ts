@@ -50,6 +50,25 @@ export function analyzeDeaths(records: DeathRecord[]): DeathPatternReport {
       : "dying while sitting on big unspent gold — BASE";
   }
 
+  // Cluster deaths: multiple deaths within 3 minutes → fighting without reset
+  if (records.length >= 2) {
+    const sorted = [...records].sort((a, b) => a.gameTime - b.gameTime);
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i].gameTime - sorted[i - 1].gameTime < 180) {
+        dominant = dominant
+          ? `${dominant}; back-to-back deaths — reset before re-fighting`
+          : "back-to-back deaths — buy and wait for allies before re-fighting";
+        break;
+      }
+    }
+  }
+
+  // Low level deaths: dying when clearly underleveled (level ≤ avg of death levels early)
+  const earlyLow = records.filter((r) => r.phase === "early" && r.level <= 4).length;
+  if (earlyLow >= 2 && !dominant) {
+    dominant = "early levels lost — stop forcing all-ins before spike";
+  }
+
   return {
     total: records.length,
     early,

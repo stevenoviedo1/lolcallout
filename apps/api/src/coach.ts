@@ -1,6 +1,13 @@
 import OpenAI from "openai";
 import type { ChatRequest, GameContext } from "@riftcoach/shared";
-import { buildDeathCoachBrief, gradeMatch } from "@riftcoach/shared";
+import {
+  buildDeathCoachBrief,
+  computeMatchAnalytics,
+  flavorLine,
+  gradeMatch,
+  parseCoachPersonality,
+  strategyNextAction,
+} from "@riftcoach/shared";
 import { buildUserPayload, COACH_SYSTEM_PROMPT } from "@riftcoach/prompts";
 
 function client(): OpenAI {
@@ -15,10 +22,16 @@ function client(): OpenAI {
 }
 
 const model = (intent?: ChatRequest["intent"]) => {
+  // Prefer strongest available model for hard reasoning; callouts can use a faster alias
   if (intent === "callout") {
-    return process.env.XAI_CALLOUT_MODEL || process.env.XAI_MODEL || "grok-4.5";
+    return (
+      process.env.XAI_CALLOUT_MODEL ||
+      process.env.XAI_MODEL ||
+      "grok-4.5"
+    );
   }
-  return process.env.XAI_MODEL || "grok-4.5";
+  // what_now / death / summary get the primary brain
+  return process.env.XAI_REASON_MODEL || process.env.XAI_MODEL || "grok-4.5";
 };
 
 function isDeathCoaching(req: ChatRequest, context?: GameContext): boolean {
@@ -40,11 +53,28 @@ export function offlineCoachReply(req: ChatRequest, context?: GameContext): stri
     if (brief) {
       return `LIVE: ${brief.lines.live}\nNEXT: ${brief.lines.next}`;
     }
-    return `LIVE: Next spawn — one job, farm safe or group.\nNEXT: Buy if needed, safe wave first.`;
+    return `LIVE: Next spawn — one job: nearest wave or stack with two allies.\nNEXT: Buy if needed, then rejoin with info.`;
   }
 
   if (req.intent === "callout") {
-    // Prefer actionable local lines over echoing the signal title
+    // Prefer combat/field-aware local lines
+    if (context) {
+      const a = computeMatchAnalytics(context);
+      const personality = parseCoachPersonality(req.personality);
+      const seed = Math.floor(context.gameTime);
+      if (a?.convertHint && a.fightLight === "green") {
+        return `CALLOUT: ${flavorLine(a.convertHint, personality, seed)}`;
+      }
+      if (a?.holdHint && a.fightLight === "red") {
+        return `CALLOUT: ${flavorLine(a.holdHint, personality, seed)}`;
+      }
+      if (a) {
+        const line = strategyNextAction(a);
+        if (line) {
+          return `CALLOUT: ${flavorLine(line, personality, seed)}`;
+        }
+      }
+    }
     if (/low hp|play safe|reset/i.test(req.message) && you) {
       const g = Math.round(you.currentGold);
       return g >= 1000
@@ -54,13 +84,13 @@ export function offlineCoachReply(req: ChatRequest, context?: GameContext): stri
     if (/gold|item spike|base/i.test(req.message) && you) {
       return `CALLOUT: BASE for your item spike — ~${Math.round(you.currentGold)}g unspent.\nNOTE: Crash wave first if safe.`;
     }
-    if (/shutdown|protect lead|fed/i.test(req.message)) {
-      return `CALLOUT: Protect the lead — vision first, no fog walks.\nNOTE: You're worth too much gold.`;
+    if (/shutdown|protect lead|fed|ult/i.test(req.message)) {
+      return `CALLOUT: Respect the threat — vision first, no free walk-ups.\nNOTE: Only high-% fights.`;
     }
     if (/level/i.test(req.message) && you) {
       return `CALLOUT: Level ${you.level} spike — short trade or shove, then move.\nNOTE: Spend the tempo before it decays.`;
     }
-    return `CALLOUT: Play the next wave with intention — farm, base, or group.\nNOTE: Set XAI_API_KEY for richer live coaching.`;
+    return `CALLOUT: Play the next high-% decision — convert if numbers, hold if not.\nNOTE: Set XAI_API_KEY for richer live coaching.`;
   }
 
   if (req.intent === "summary") {
@@ -176,8 +206,15 @@ export async function* streamCoachReply(
     req.intent === "objective" ||
     req.intent === "why_die";
 
-  // Live path: almost no history so first token arrives faster
-  const historySlice = liveIntent ? history.slice(-2) : history.slice(-8);
+  // More history = more brain (pattern continuity). Callouts still lighter for speed.
+  const historySlice =
+    req.intent === "callout"
+      ? history.slice(-3)
+      : req.intent === "summary"
+        ? history.slice(-12)
+        : liveIntent
+          ? history.slice(-6)
+          : history.slice(-14);
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: COACH_SYSTEM_PROMPT },
@@ -189,26 +226,50 @@ export async function* streamCoachReply(
   ];
 
   const death = isDeathCoaching(req, context);
+  const bro = req.personality === "hype";
   const isLiveCue =
     req.intent === "callout" ||
     req.intent === "what_now" ||
     req.intent === "why_die" ||
     /KIND:|LIVE TEMPO|Situation brief|DEATH COACHING/i.test(req.message || "");
+  // Higher ceilings = deeper answers (still capped for voice latency on callouts)
   const maxTokens =
     req.intent === "summary"
-      ? 450
+      ? 700
       : death || req.intent === "why_die"
-        ? 160
-        : isLiveCue
-          ? 140
-          : liveIntent
-            ? 180
-            : 300;
+        ? bro
+          ? 380
+          : 280
+        : req.intent === "what_now" || req.intent === "free"
+          ? bro
+            ? 360
+            : 300
+          : isLiveCue
+            ? bro
+              ? 260
+              : 180
+            : liveIntent
+              ? bro
+                ? 320
+                : 240
+              : 400;
+
+  // Lower temp on hard decisions; slightly higher for bro chat flavor
+  const temperature =
+    req.intent === "summary"
+      ? 0.4
+      : isLiveCue
+        ? bro
+          ? 0.45
+          : 0.28
+        : bro
+          ? 0.55
+          : 0.4;
 
   const stream = await openai.chat.completions.create({
     model: model(req.intent),
     stream: true,
-    temperature: isLiveCue ? 0.35 : 0.5,
+    temperature,
     max_tokens: maxTokens,
     messages,
   });

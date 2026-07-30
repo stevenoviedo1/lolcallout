@@ -93,30 +93,40 @@ export function inferRole(
 export function rolePlaybook(role: InferredRole): string {
   switch (role) {
     case "MID":
-      return `## Role playbook: MID
-- Own wave: freeze when weak, shove when you want to move.
-- Don't force all-ins without flash/jungler unless hard ahead.
-- After first item, look for side-wave + mid priority, not random river walks.`;
+      return `## Role playbook: MID (elite)
+- Wave is your map permission: crash before base/roam; freeze when weak.
+- Track side numbers — mid deaths create free roam or free punish.
+- After first item: side wave + mid prio, not random river.
+- Fight role: usually secondary engage / pick — not first into frontline.
+- Convert: plates on enemy mid death; rotate only with crash.`;
     case "ADC":
-      return `## Role playbook: ADC
-- DPS windows and spacing > greedy CS under enemy threat.
-- Track support summs when known; don't face-check alone.
-- Mid-game: share side waves, group for objectives with DPS angle.`;
+      return `## Role playbook: ADC (elite)
+- DPS windows and spacing > greedy CS under threat.
+- Never face-check; your job is damage after team creates space.
+- Mid-game: share sides, group for obj with max-range angle.
+- When numbers green: your convert is tower/obj DPS, not chase.
+- When red: nearest safe wave — don't mid 1v2.`;
     case "SUPPORT":
-      return `## Role playbook: SUPPORT
-- Vision, roam timers, and peel > farm.
-- Don't die for one ward deep if team can't follow.
-- Enable ADC early; enable map later.`;
+      return `## Role playbook: SUPPORT (elite)
+- Crash → vision → move. Idle bot is a wasted map.
+- Peel vs dive threats; engage only if kit + follow-up.
+- Deep wards only when team can punish the face-check.
+- Green light: ward pit/river then free side with carry.
+- Red light: near vision only — no grief deep.`;
     case "JUNGLE":
-      return `## Role playbook: JUNGLE
-- Tempo: full clear vs gank based on lanes (from scoreboard pressure only).
-- Don't invent pathing you can't see.
-- Objective setups > random invades without info.`;
+      return `## Role playbook: JUNGLE (elite)
+- You set the pulse: camps tempo → high-% looks → obj setup.
+- Never invent pathing. Scoreboard + events only.
+- Green light: YOU start obj; allies crash waves into it.
+- Red light: opposite camps; skip river contest.
+- Ganks only on shoved lanes or guaranteed numbers.`;
     case "TOP":
-      return `## Role playbook: TOP
-- Wave management and TP/timing windows.
-- Avoid 1v2 griefs; track deaths on the board.
-- Side pressure when mid/bot needs space.`;
+      return `## Role playbook: TOP (elite)
+- Wave + TP windows. Don't 1v2 grief.
+- Track bot/mid deaths for TP angles (when legal info allows).
+- Ahead: side pressure that draws two — not ego chase.
+- Behind: farm under tower; only high-% holds.
+- Green: plates then base if gold high.`;
     case "ARAM":
       return `## Role playbook: ARAM fighter
 - Don't int side alone after a won fight.

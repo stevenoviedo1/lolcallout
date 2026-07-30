@@ -5,6 +5,8 @@
 
 import type { ActiveYou, GameContext, GameMode } from "./index.js";
 import { phaseForTime } from "./deaths.js";
+import { buildCombatIntel } from "./combatIntel.js";
+import { getChampKit } from "./champKnowledge.js";
 
 function formatGameClock(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
@@ -125,6 +127,10 @@ export function buildDeathCoachBrief(ctx: GameContext): DeathCoachBrief | null {
   const deathCount = you.deaths;
   const kda = `${you.kills}/${you.deaths}/${you.assists}`;
 
+  const combat = buildCombatIntel(ctx);
+  const killer = combat?.yourLastKiller || null;
+  const killerKit = killer ? getChampKit(killer) : null;
+
   const facts: string[] = [
     `Clock ${formatGameClock(ctx.gameTime)} (${phase} game)`,
     `${you.championName} L${you.level} · ${kda} · ${you.creeps} CS (${cspm.toFixed(1)}/m)`,
@@ -136,6 +142,8 @@ export function buildDeathCoachBrief(ctx: GameContext): DeathCoachBrief | null {
     board.allyDead >= 2 ? `Allies dead: ${board.allyDead}` : "",
     board.enemyDead >= 2 ? `Enemies dead: ${board.enemyDead}` : "",
     board.fedEnemy.length ? `Fed: ${board.fedEnemy.join(", ")}` : "",
+    killer ? `Killer: ${killer}${killerKit ? ` (${killerKit.identity})` : ""}` : "",
+    combat?.fightReason ? `Board: ${combat.fightReason}` : "",
     dominant ? `Pattern: ${dominant}` : "",
   ].filter(Boolean);
 
@@ -149,6 +157,7 @@ export function buildDeathCoachBrief(ctx: GameContext): DeathCoachBrief | null {
     board,
     dominant,
     deathCount,
+    killer,
   });
 
   const formatted = [
@@ -176,9 +185,13 @@ function pickDeathLines(input: {
   board: ReturnType<typeof analyzeBoard>;
   dominant: string | null;
   deathCount: number;
+  killer?: string | null;
 }): CoachLines {
-  const { you, phase, mode, gold, cspm, board, dominant, deathCount } = input;
+  const { you, phase, mode, gold, cspm, board, dominant, deathCount, killer } = input;
   const champ = you.championName;
+  const respect = killer
+    ? `Next spawn respect ${killer} — different entry.`
+    : "Next spawn change the entry; don't repeat the same path.";
 
   if (mode === "ARAM") {
     if (board.allyDead >= 2) {
@@ -198,6 +211,16 @@ function pickDeathLines(input: {
         avoid: "One more spell with full gold.",
         next: `Spend ~${gold}g, rejoin with cooldowns.`,
         live: `Shop first — you banked ${gold} gold.`,
+        pattern: dominant || undefined,
+      };
+    }
+    if (killer) {
+      return {
+        cause: `Lost the exchange vs ${killer}.`,
+        fix: "Max range first; commit only after their engage.",
+        avoid: `Walking into ${killer}'s range first.`,
+        next: respect,
+        live: `${champ}: next fight max range first — respect ${killer}.`,
         pattern: dominant || undefined,
       };
     }
@@ -228,8 +251,41 @@ function pickDeathLines(input: {
       fix: "Base when you hit a component threshold.",
       avoid: "One more wave with a full buy.",
       next: "Spawn, buy, then rejoin.",
-      live: `Base next — you died on ${gold} gold.`,
+      live: `${champ}: base next — died on ${gold}g${killer ? ` to ${killer}` : ""}.`,
       pattern: dominant || "dying with unspent gold",
+    };
+  }
+
+  if (killer && board.allyDead >= 1) {
+    return {
+      cause: `Died to ${killer} while allies were down or out of position.`,
+      fix: "Only re-enter with two allies and vision.",
+      avoid: `Solo walking into ${killer}.`,
+      next: respect,
+      live: `${champ}: low-% into ${killer} — next spawn wait for two allies.`,
+      pattern: dominant || undefined,
+    };
+  }
+
+  if (killer && board.fedEnemy.includes(killer)) {
+    return {
+      cause: `Took a low-% fight into fed ${killer}.`,
+      fix: "Only fight them with CC, numbers, or their key spell down.",
+      avoid: "First-in onto the fed threat.",
+      next: respect,
+      live: `${champ}: ${killer} is fed — secondary engage only next fight.`,
+      pattern: dominant || undefined,
+    };
+  }
+
+  if (killer) {
+    return {
+      cause: `Lost the exchange vs ${killer}.`,
+      fix: "Change angle and timing — don't repeat the same path.",
+      avoid: "Same entry after death.",
+      next: respect,
+      live: `${champ}: next spawn respect ${killer} — different entry, not the same fight.`,
+      pattern: dominant || undefined,
     };
   }
 
@@ -239,7 +295,7 @@ function pickDeathLines(input: {
       fix: `As ${champ}, only trade with minion advantage.`,
       avoid: "All-ins and river facechecks pre-item.",
       next: "Farm under tower, no ego.",
-      live: "Stabilize. Farm safe — no more early all-ins.",
+      live: `${champ}: stabilize — farm first, no more early all-ins.`,
       pattern: dominant || "too many early deaths",
     };
   }

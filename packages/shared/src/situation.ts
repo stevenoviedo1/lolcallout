@@ -22,6 +22,9 @@ import {
 import { buildStrategyPlan, formatStrategyForAi, type StrategyPlan } from "./strategy.js";
 import { detectModeProfile, type ModeProfile } from "./modes.js";
 import { buildEnemyThreatForecast } from "./champKnowledge.js";
+import { buildFieldState, formatFieldStateForAi } from "./fieldState.js";
+import { buildCombatIntel, formatCombatIntelForAi } from "./combatIntel.js";
+import { readBattle, formatBattleForAi } from "./battleReader.js";
 
 export interface SituationBrief {
   kind: CalloutKind | "kill" | "match_start" | "numbers";
@@ -191,6 +194,43 @@ export function buildSituationBrief(
       noRecall: analytics.noRecall,
     });
     lines.push(`ENEMY_FORECAST:\n${threats.map((t) => `  - ${t}`).join("\n")}`);
+  }
+
+  // Live field + combat intel (legal data only)
+  const field = buildFieldState(ctx);
+  if (field) {
+    lines.push(formatFieldStateForAi(field));
+    if (field.alertLines[0] && (kind === "tempo" || kind === "numbers" || kind === "shutdown")) {
+      if (field.priorityThreats.length || Math.abs(field.manAdvantage) >= 2) {
+        fallback = field.alertLines[0];
+      }
+    }
+  }
+  const combat = buildCombatIntel(ctx);
+  if (combat) {
+    lines.push(formatCombatIntelForAi(combat));
+    if (kind === "death" && combat.holdLine) fallback = combat.holdLine;
+    if (
+      (kind === "numbers" || kind === "kill" || kind === "tempo") &&
+      combat.fightLight === "green" &&
+      combat.convertLine
+    ) {
+      fallback = combat.convertLine;
+    }
+    if (
+      (kind === "numbers" || kind === "tempo" || kind === "low_hp") &&
+      combat.fightLight === "red" &&
+      combat.holdLine
+    ) {
+      fallback = combat.holdLine;
+    }
+  }
+  const battle = readBattle(ctx);
+  if (battle) {
+    lines.push(formatBattleForAi(battle));
+    if (battle.callout && battle.phase !== "idle" && battle.heat >= 28) {
+      fallback = battle.callout;
+    }
   }
 
   const text = lines.filter(Boolean).join("\n");

@@ -35,10 +35,16 @@ import {
   maybeRotateBlockLearningObjective,
   resolveLearningObjective,
   formatPostGameLoCard,
+  parseCoachPersonality,
+  flavorLine,
+  emptyMatchMemory,
+  rememberSpoken,
   type DetectedSignal,
   type CoachWatchState,
   type CoachIntensity,
   type CoachBrainState,
+  type CoachPersonality,
+  type MatchMemory,
 } from "@riftcoach/shared";
 import {
   captureScreen,
@@ -192,6 +198,13 @@ export interface CoachBrainUi {
   checklistWorth: string;
   mapClock: string;
   throwLadder: string | null;
+  /** green | yellow | red from combat intel */
+  fightLight?: string;
+  fightReason?: string;
+  manAdvantage?: number;
+  battlePhase?: string;
+  battleJob?: string;
+  battleFocus?: string | null;
 }
 
 let pollTimer: number | undefined;
@@ -205,6 +218,8 @@ let spokenThisGame = 0;
 let aiCalloutsThisGame = 0;
 /** Human-like watch state (deltas, not timers) */
 let coachWatch: CoachWatchState = emptyWatchState();
+/** Sticky match memory — habits, narrative, predictions */
+let matchMemory: MatchMemory = emptyMatchMemory();
 /** Anti-repeat spoken tips */
 let lastSpokenTips: string[] = [];
 let lastSpokenAt = 0;
@@ -224,7 +239,18 @@ let lastLockInKey = "";
 /** Sticky learning objective across the match (3-block style) */
 let sessionLearningObjective: string | null = null;
 
-function brainToUi(brain: CoachBrainState, stickyLo?: string | null): CoachBrainUi {
+function brainToUi(
+  brain: CoachBrainState,
+  stickyLo?: string | null,
+  combat?: {
+    fightLight?: string;
+    fightReason?: string;
+    manAdvantage?: number;
+    battlePhase?: string;
+    battleJob?: string;
+    battleFocus?: string | null;
+  }
+): CoachBrainUi {
   return {
     hud: formatBrainHud(brain),
     tempo: brain.tempo,
@@ -247,6 +273,12 @@ function brainToUi(brain: CoachBrainState, stickyLo?: string | null): CoachBrain
     checklistWorth: brain.checklist.worthIt,
     mapClock: brain.mapClock,
     throwLadder: brain.throwLadder,
+    fightLight: combat?.fightLight,
+    fightReason: combat?.fightReason,
+    manAdvantage: combat?.manAdvantage,
+    battlePhase: combat?.battlePhase,
+    battleJob: combat?.battleJob,
+    battleFocus: combat?.battleFocus,
   };
 }
 
@@ -256,10 +288,26 @@ function getCoachIntensity(): CoachIntensity {
   if (v === "quiet" || v === "talkative") return v;
   return "normal";
 }
+
+/** friend = supportive · hype = funny praise + smack */
+function getCoachPersonality(): CoachPersonality {
+  return parseCoachPersonality(localStorage.getItem("rc_coach_personality") || "friend");
+}
 /** Min gap between non-urgent spoken tips — coach may speak again when worthy */
 const MIN_SPEAK_GAP_MS = 5_200;
 /** Interrupt prior line for these (still one voice — cuts previous) */
-const URGENT_KINDS = new Set(["death", "low_hp", "numbers", "kill", "objective"]);
+const URGENT_KINDS = new Set([
+  "death",
+  "low_hp",
+  "numbers",
+  "kill",
+  "objective",
+  "shutdown",
+  "battle",
+  "disengage",
+  "focus_fire",
+  "tempo",
+]);
 
 function normalizeTip(s: string): string {
   return s
@@ -272,17 +320,18 @@ function normalizeTip(s: string): string {
 function isRepeatTip(text: string): boolean {
   const n = normalizeTip(text);
   if (!n) return true;
-  // Only block near-exact repeats (was too aggressive → silent coach)
+  // Block near-duplicates so the coach stops looping the same script
   return lastSpokenTips.some((prev) => {
     const p = normalizeTip(prev);
     if (p === n) return true;
-    if (p.length > 20 && n.length > 20 && (p.includes(n) || n.includes(p))) return true;
-    const wa = new Set(n.split(" ").filter((w) => w.length > 3));
-    const wb = p.split(" ").filter((w) => w.length > 3);
-    if (wb.length < 5 || wa.size < 5) return false;
+    if (p.length > 16 && n.length > 16 && (p.includes(n) || n.includes(p))) return true;
+    const stop = new Set(["with", "from", "then", "that", "this", "your", "have", "down", "alive"]);
+    const wa = new Set(n.split(" ").filter((w) => w.length > 3 && !stop.has(w)));
+    const wb = p.split(" ").filter((w) => w.length > 3 && !stop.has(w));
+    if (wb.length < 4 || wa.size < 4) return false;
     let hit = 0;
     for (const w of wb) if (wa.has(w)) hit++;
-    return hit / wb.length >= 0.72 && hit >= 5;
+    return hit / wb.length >= 0.62 && hit >= 4;
   });
 }
 
@@ -361,7 +410,13 @@ function speakIfEnabled(
       return false;
     }
     spokenThisGame += 1;
-    lastSpokenTips = [text, ...lastSpokenTips].slice(0, 8);
+    lastSpokenTips = [text, ...lastSpokenTips].slice(0, 14);
+    try {
+      const gt = useAppStore.getState().context.gameTime || 0;
+      matchMemory = rememberSpoken(matchMemory, text, gt);
+    } catch {
+      /* memory optional */
+    }
   }
 
   // Lock for line duration only — one voice at a time (interrupt replaces prior)
@@ -375,12 +430,21 @@ function speakIfEnabled(
   const base = st.voicePrefs;
   setVoicePrefs(base);
   const isLiveCallout = kind === "callout";
+  const broMode = getCoachPersonality() === "hype";
+  // Bro talks longer natural sentences; friend callouts stay snappier
+  const maxChars = broMode
+    ? isLiveCallout
+      ? 280
+      : 420
+    : isLiveCallout
+      ? 170
+      : 220;
   speakText(text, {
     interrupt: true, // always single-slot: stop prior line, never dual TTS
-    rate: Math.min(1.15, base.rate + (isLiveCallout ? 0.04 : 0)),
+    rate: Math.min(1.12, base.rate + (isLiveCallout && !broMode ? 0.04 : 0)),
     pitch: base.pitch,
     volume: clampVoiceVolume(base.volume ?? DEFAULT_VOICE_PREFS.volume),
-    maxChars: isLiveCallout ? 170 : 220,
+    maxChars,
     prefs: base,
   });
   return true;
@@ -830,7 +894,14 @@ export const useAppStore = create<AppState>((set, get) => ({
               liveBrain,
               { forceRefresh: false }
             );
-            const ui = brainToUi(liveBrain, sessionLearningObjective);
+            const ui = brainToUi(liveBrain, sessionLearningObjective, {
+              fightLight: aSnap.fightLight,
+              fightReason: aSnap.fightReason,
+              manAdvantage: aSnap.manAdvantage,
+              battlePhase: aSnap.battlePhase,
+              battleJob: aSnap.battleJob,
+              battleFocus: aSnap.battleFocus,
+            });
             set({ coachBrain: ui });
           } catch {
             /* brain optional */
@@ -842,13 +913,26 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       // Human-like coach: only speak when insight score clears threshold (no timer filler)
       if (calloutsEnabled && !calloutBusy && nowInGame && !status.mock && ctx.you) {
-        const { insights, next: watchNext, mode: modeProf } = detectCoachInsights({
+        const personality = getCoachPersonality();
+        const {
+          insights,
+          next: watchNext,
+          mode: modeProf,
+          memory: memNext,
+          eliteBest,
+        } = detectCoachInsights({
           ctx,
           prev: coachWatch,
           agentSignals: status.signals || [],
           avoidLines: lastSpokenTips,
+          personality,
+          memory: matchMemory,
         });
         coachWatch = watchNext;
+        matchMemory = memNext;
+        if (eliteBest && !matchMemory.focus && eliteBest.reason) {
+          matchMemory = { ...matchMemory, focus: eliteBest.reason.slice(0, 80) };
+        }
 
         // Mark agent signals processed so we don't double-handle below
         for (const s of status.signals || []) processedSignals.add(s.id);
@@ -862,19 +946,47 @@ export const useAppStore = create<AppState>((set, get) => ({
             sessionLearningObjective ||
             (liveBrain ? resolveLearningObjective(liveBrain, null) : "") ||
             "";
+          // Map soft insight kinds onto DetectedSignal kinds
+          const softKinds = new Set([
+            "pressure_flip",
+            "wincon_change",
+            "fed_enemy_new",
+            "death_pattern",
+            "gold_sit",
+            "behind_farm",
+            "tempo_flip",
+            "brain_risk",
+            "brain_window",
+            "ult_threat",
+            "field_alert",
+            "lane_pressure",
+            "fight_window",
+            "hold_window",
+            "objective_clock",
+            "battle",
+            "disengage",
+            "focus_fire",
+          ]);
+          const mapSoftKind = (k: string): DetectedSignal["kind"] => {
+            if (k === "ult_threat" || k === "lane_pressure") return "shutdown";
+            if (
+              k === "field_alert" ||
+              k === "fight_window" ||
+              k === "hold_window" ||
+              k === "battle" ||
+              k === "disengage" ||
+              k === "focus_fire"
+            ) {
+              return "numbers";
+            }
+            if (k === "objective_clock") return "objective";
+            return "tempo";
+          };
           // Stable id per signature so deferred voice can retry (don't burn Date.now() ids)
           const synthetic: DetectedSignal = {
             id: `insight::${best.kind}::${best.signature}`,
-            kind: (best.kind === "pressure_flip" ||
-            best.kind === "wincon_change" ||
-            best.kind === "fed_enemy_new" ||
-            best.kind === "death_pattern" ||
-            best.kind === "gold_sit" ||
-            best.kind === "behind_farm" ||
-            best.kind === "tempo_flip" ||
-            best.kind === "brain_risk" ||
-            best.kind === "brain_window"
-              ? "tempo"
+            kind: (softKinds.has(best.kind)
+              ? mapSoftKind(best.kind)
               : best.kind) as DetectedSignal["kind"],
             severity: best.severity,
             gameTime: ctx.gameTime,
@@ -906,6 +1018,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       if (!nowInGame) {
         coachWatch = emptyWatchState();
+        matchMemory = emptyMatchMemory();
         lastSpokenTips = [];
         lastSpokenAt = 0;
         coachVoiceLockedUntil = 0;
@@ -991,10 +1104,16 @@ export const useAppStore = create<AppState>((set, get) => ({
               brief.fallback ||
               buildTempoCoachLine(ctx, { avoid: lastSpokenTips })?.live ||
               "";
+            const personality = getCoachPersonality();
             if (analytics) {
               if (!fallback || isObviousLine(fallback)) {
                 fallback = polishLine(
-                  craftCoachLine(analytics, signal.kind || "tempo", modeProfLocal),
+                  craftCoachLine(
+                    analytics,
+                    signal.kind || "tempo",
+                    modeProfLocal,
+                    `alt=${Math.floor(ctx.gameTime)}`
+                  ),
                   analytics,
                   modeProfLocal
                 );
@@ -1008,6 +1127,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                   ? `${ctx.you?.championName || "You"}: ${brainForCall.highestValue}`
                   : `${ctx.you?.championName || "You"}: shove this wave then move first.`;
             }
+            fallback = flavorLine(fallback, personality, Math.floor(ctx.gameTime));
 
             if (!isUrgent && isRepeatTip(fallback)) {
               processedSignals.add(signal.id);
@@ -1040,6 +1160,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                 "level_up",
                 "match_start",
                 "shutdown",
+                "tempo",
               ]);
               const useAi =
                 (AI_KINDS.has(signal.kind) ||
@@ -1129,7 +1250,11 @@ export const useAppStore = create<AppState>((set, get) => ({
                 void (async () => {
                   try {
                     const sid = await ensureCoachSession();
-                    const full = await streamCallout(sid, enriched, ctx, () => undefined);
+                    const full = await streamCallout(sid, enriched, ctx, () => undefined, {
+                      personality: getCoachPersonality(),
+                      recentCallouts: lastSpokenTips.slice(0, 8),
+                      matchMemory,
+                    });
                     const trimmed = full
                       .replace(/^(ACTION|CALLOUT|LIVE|NOTE|CAUSE|FIX|NEXT|VERDICT):\s*/gim, "")
                       .replace(/\n+/g, " ")
@@ -1236,6 +1361,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           frameMime,
           goals: get().goals,
           deathReport: get().deathReport || undefined,
+          personality: getCoachPersonality(),
+          recentCallouts: lastSpokenTips.slice(0, 8),
+          matchMemory,
         },
         (token) => {
           full += token;

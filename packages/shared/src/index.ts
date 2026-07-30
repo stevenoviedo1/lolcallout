@@ -34,6 +34,15 @@ export interface PlayerScoreline {
   isDead?: boolean;
   summonerSpells?: string[];
   items?: string[];
+  /** Live Client role/lane string when present (TOP, JUNGLE, …) — not map coords */
+  laneRole?: string;
+}
+
+export interface AbilityLevels {
+  Q?: number;
+  W?: number;
+  E?: number;
+  R?: number;
 }
 
 export interface ActiveYou {
@@ -52,6 +61,10 @@ export interface ActiveYou {
   summonerSpells?: string[];
   items?: string[];
   isDead?: boolean;
+  /** Live Client role/lane when present */
+  laneRole?: string;
+  /** Your ability ranks from Live Client (enemy CDs never available legally) */
+  abilityLevels?: AbilityLevels;
 }
 
 export interface GameEvent {
@@ -192,11 +205,20 @@ export interface ChatRequest {
   frameMime?: string;
   goals?: import("./goals.js").SessionGoal[];
   deathReport?: import("./deaths.js").DeathPatternReport;
+  /** friend = supportive duo · hype = funny praise + smack */
+  personality?: import("./personality.js").CoachPersonality;
+  /** Recent spoken lines — model must not repeat */
+  recentCallouts?: string[];
+  /** Optional sticky match memory from client */
+  matchMemory?: import("./matchMemory.js").MatchMemory;
 }
 
 export interface CalloutRequest {
   signal: DetectedSignal;
   context?: GameContext;
+  personality?: import("./personality.js").CoachPersonality;
+  recentCallouts?: string[];
+  matchMemory?: import("./matchMemory.js").MatchMemory;
 }
 
 export interface AgentStatusResponse {
@@ -346,6 +368,68 @@ export {
   explainBestOptions,
   type PlayOption,
 } from "./coachLines.js";
+export {
+  parseCoachPersonality,
+  personalitySystemBlock,
+  flavorLine,
+  toNaturalTalk,
+  COACH_PERSONALITY_LABELS,
+  type CoachPersonality,
+} from "./personality.js";
+export {
+  buildFieldState,
+  formatFieldStateForAi,
+  type FieldState,
+  type FieldUnit,
+  type UltStatus,
+} from "./fieldState.js";
+export {
+  buildCombatIntel,
+  formatCombatIntelForAi,
+  parseKillEvent,
+  type CombatIntel,
+  type FightLight,
+  type KillFeedItem,
+} from "./combatIntel.js";
+export {
+  emptyMatchMemory,
+  updateMatchMemory,
+  rememberSpoken,
+  topHabits,
+  predictNextMistakes,
+  formatMemoryForAi,
+  memoryBlocksLine,
+  type MatchMemory,
+  type MemoryEvent,
+  type HabitCounter,
+} from "./matchMemory.js";
+export {
+  synthesizeEliteCallouts,
+  pickEliteCallout,
+  formatEliteForAi,
+  type EliteCallout,
+  type ElitePriority,
+} from "./eliteCoach.js";
+export {
+  readBattle,
+  formatBattleForAi,
+  battleIsUrgent,
+  type BattleRead,
+  type BattlePhase,
+  type BattleJob,
+  type BattleParticipant,
+} from "./battleReader.js";
+export {
+  makeShotcall,
+  polishShotcall,
+  type Shotcall,
+} from "./shotcall.js";
+export {
+  deepReasonBoard,
+  formatDeepReasonForAi,
+  type DeepReasoning,
+  type ReasonOption,
+} from "./deepReason.js";
 export {
   computeCoachBrain,
   applyBrainToOptions,

@@ -477,6 +477,9 @@ app.post("/v1/sessions/:id/callout", async (req, res) => {
       : `${body.signal.title}${body.signal.detail ? ` — ${body.signal.detail}` : ""}\n\n${body.signal.coachPrompt}`,
     intent: isDeath ? "why_die" : "callout",
     context: body.context,
+    personality: body.personality,
+    recentCallouts: body.recentCallouts,
+    matchMemory: body.matchMemory,
     deathReport: body.context?.deathReport
       ? {
           total: body.context.deathReport.total,

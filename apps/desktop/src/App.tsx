@@ -328,14 +328,45 @@ export default function App() {
               {coachBrain && (
                 <div className={`live-stat brain-strip tempo-${coachBrain.tempo}`}>
                   <span className="lbl">Brain</span>
-                  <span className="val mono">
+                  <span
+                    className="val mono"
+                    title={
+                      coachBrain.battlePhase && coachBrain.battlePhase !== "idle"
+                        ? `Battle ${coachBrain.battlePhase}: ${coachBrain.battleJob || ""}${
+                            coachBrain.battleFocus ? ` → ${coachBrain.battleFocus}` : ""
+                          }`
+                        : coachBrain.fightReason || undefined
+                    }
+                  >
+                    {coachBrain.battlePhase && coachBrain.battlePhase !== "idle"
+                      ? `${coachBrain.battlePhase.toUpperCase()} `
+                      : coachBrain.fightLight
+                        ? `${coachBrain.fightLight.toUpperCase()} `
+                        : ""}
                     {coachBrain.tempo.toUpperCase()}{" "}
                     {coachBrain.tempoScore >= 0 ? "+" : ""}
                     {coachBrain.tempoScore}
-                    <span className="brain-strip-sep">·</span>
-                    {coachBrain.focus}
-                    <span className="brain-strip-sep">·</span>
-                    {coachBrain.fightRole}
+                    {typeof coachBrain.manAdvantage === "number" ? (
+                      <>
+                        <span className="brain-strip-sep">·</span>
+                        {coachBrain.manAdvantage >= 0 ? "+" : ""}
+                        {coachBrain.manAdvantage}
+                      </>
+                    ) : null}
+                    {coachBrain.battleJob && coachBrain.battlePhase !== "idle" ? (
+                      <>
+                        <span className="brain-strip-sep">·</span>
+                        {coachBrain.battleJob}
+                        {coachBrain.battleFocus ? `>${coachBrain.battleFocus}` : ""}
+                      </>
+                    ) : (
+                      <>
+                        <span className="brain-strip-sep">·</span>
+                        {coachBrain.focus}
+                        <span className="brain-strip-sep">·</span>
+                        {coachBrain.fightRole}
+                      </>
+                    )}
                   </span>
                 </div>
               )}
@@ -732,6 +763,45 @@ export default function App() {
               />
               Impact-only voice (fewer lines — death, HP, numbers, kills…)
             </label>
+            <p className="settings-sub">Coach personality</p>
+            <div className="style-row">
+              {(
+                [
+                  ["friend", "Friend coach"],
+                  ["hype", "AI bro"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`chip ${
+                    (localStorage.getItem("rc_coach_personality") || "friend") === id
+                      ? "chip-on"
+                      : ""
+                  }`}
+                  onClick={() => {
+                    localStorage.setItem("rc_coach_personality", id);
+                    useAppStore.setState({
+                      toast:
+                        id === "hype"
+                          ? "Coach: AI bro — normal talk, not robot callouts"
+                          : "Coach: friend mode — calm and clear",
+                    });
+                    window.setTimeout(() => {
+                      if (useAppStore.getState().toast?.startsWith("Coach:")) {
+                        useAppStore.setState({ toast: null });
+                      }
+                    }, 2500);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="muted" style={{ marginTop: 0 }}>
+              <strong>Friend</strong> = calm supportive duo. <strong>AI bro</strong> = talks like a
+              real friend (full sentences), light smack on bad plays — not telegraphic callouts.
+            </p>
             <p className="settings-sub">Guidance density</p>
             <div className="style-row">
               {(
@@ -765,7 +835,8 @@ export default function App() {
             </div>
             <p className="muted" style={{ marginTop: 0 }}>
               Quiet = only the highest scores. Talkative = coach speaks more often when the board
-              changes. Never a timer metronome — only when something is worth saying.
+              changes. Field-aware callouts (ult unlocked, man advantage, same-lane threats) —
+              never a timer metronome.
             </p>
             <label className="toggle">
               <input

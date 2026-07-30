@@ -147,9 +147,20 @@ export async function streamCallout(
   sessionId: string,
   signal: DetectedSignal,
   context: GameContext,
-  onToken: (t: string) => void
+  onToken: (t: string) => void,
+  opts?: {
+    personality?: CalloutRequest["personality"];
+    recentCallouts?: string[];
+    matchMemory?: CalloutRequest["matchMemory"];
+  }
 ): Promise<string> {
-  const body: CalloutRequest = { signal, context };
+  const body: CalloutRequest = {
+    signal,
+    context,
+    personality: opts?.personality,
+    recentCallouts: opts?.recentCallouts,
+    matchMemory: opts?.matchMemory,
+  };
   const res = await fetch(`${API_URL}/v1/sessions/${sessionId}/callout`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },

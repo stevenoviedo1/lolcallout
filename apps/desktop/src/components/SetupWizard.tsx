@@ -22,7 +22,7 @@ import { setLayoutPersisted, useAppStore } from "../stores/useAppStore";
 
 const STEPS = [
   { id: "welcome", title: "Welcome", blurb: "Your live duo coach" },
-  { id: "callouts", title: "Callouts", blurb: "What you hear in-game" },
+  { id: "callouts", title: "Callouts", blurb: "Personality, density, what you hear" },
   { id: "voice", title: "Voice", blurb: "How the coach sounds" },
   { id: "play", title: "Play setup", blurb: "Layout & HUD" },
   { id: "ready", title: "You're set", blurb: "Queue when ready" },
@@ -258,7 +258,10 @@ export function SetupWizard({
 
           {current.id === "callouts" && (
             <div className="setup-panel">
-              <p className="setup-copy">Choose how often the coach speaks during a match.</p>
+              <p className="setup-copy">
+                Pick a personality and how often the coach speaks. Field-aware callouts only fire
+                when the board changes — not a timer.
+              </p>
               <label className="setup-toggle">
                 <input
                   type="checkbox"
@@ -267,9 +270,33 @@ export function SetupWizard({
                 />
                 <span>
                   <strong>Automatic live callouts</strong>
-                  <span className="muted"> — deaths, HP, numbers, tempo, objectives</span>
+                  <span className="muted"> — deaths, HP, numbers, ult threats, convert windows</span>
                 </span>
               </label>
+              <p className="setup-section-label">Personality</p>
+              <div className="setup-chips">
+                {(
+                  [
+                    ["friend", "Friend coach", "Calm supportive duo — clear next plays"],
+                    ["hype", "AI bro", "Normal talk like a friend — not robot callouts"],
+                  ] as const
+                ).map(([id, label, detail]) => {
+                  const on =
+                    (localStorage.getItem("rc_coach_personality") || "friend") === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`setup-choice compact ${on ? "on" : ""}`}
+                      onClick={() => localStorage.setItem("rc_coach_personality", id)}
+                      disabled={!calloutsEnabled}
+                    >
+                      <strong>{label}</strong>
+                      <span>{detail}</span>
+                    </button>
+                  );
+                })}
+              </div>
               <p className="setup-section-label">Density</p>
               <div className="setup-chips">
                 {(

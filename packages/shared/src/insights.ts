@@ -9,6 +9,14 @@ import { computeMatchAnalytics, type MatchAnalytics, type Pressure, type WinCon 
 import { detectModeProfile, type ModeProfile } from "./modes.js";
 import { craftCoachLine, polishLine } from "./coachLines.js";
 import { computeCoachBrain } from "./coachBrain.js";
+import { buildFieldState } from "./fieldState.js";
+import { flavorLine, parseCoachPersonality, type CoachPersonality } from "./personality.js";
+import {
+  emptyMatchMemory,
+  updateMatchMemory,
+  type MatchMemory,
+} from "./matchMemory.js";
+import { synthesizeEliteCallouts, pickEliteCallout } from "./eliteCoach.js";
 
 export type InsightKind =
   | CalloutKind
@@ -20,7 +28,16 @@ export type InsightKind =
   | "behind_farm"
   | "tempo_flip"
   | "brain_risk"
-  | "brain_window";
+  | "brain_window"
+  | "ult_threat"
+  | "field_alert"
+  | "lane_pressure"
+  | "fight_window"
+  | "hold_window"
+  | "objective_clock"
+  | "battle"
+  | "disengage"
+  | "focus_fire";
 
 export interface CoachInsight {
   kind: InsightKind;
@@ -55,6 +72,16 @@ export interface CoachWatchState {
   lastTempo?: string;
   /** Last high-risk kind spoken (anti-spam) */
   lastBrainRiskKind?: string | null;
+  /** Last priority threat fingerprint (anti-spam ult callouts) */
+  lastThreatSig?: string | null;
+  /** Last man-advantage bucket */
+  lastManAdv?: number;
+  /** Last fight light */
+  lastFightLight?: string;
+  /** Last objective window minute spoken */
+  lastObjMinute?: number;
+  /** Last battle phase signature */
+  lastBattleSig?: string | null;
 }
 
 export function emptyWatchState(): CoachWatchState {
@@ -74,6 +101,11 @@ export function emptyWatchState(): CoachWatchState {
     goldHighSince: null,
     lastTempo: undefined,
     lastBrainRiskKind: null,
+    lastThreatSig: null,
+    lastManAdv: 0,
+    lastFightLight: undefined,
+    lastObjMinute: undefined,
+    lastBattleSig: null,
   };
 }
 
@@ -129,10 +161,20 @@ export function detectCoachInsights(opts: {
   agentSignals?: DetectedSignal[];
   avoidLines?: string[];
   now?: number;
-}): { insights: CoachInsight[]; next: CoachWatchState; mode: ModeProfile } {
+  personality?: CoachPersonality;
+  /** Optional match memory — upgraded in place via returned memory */
+  memory?: MatchMemory;
+}): {
+  insights: CoachInsight[];
+  next: CoachWatchState;
+  mode: ModeProfile;
+  memory: MatchMemory;
+  eliteBest: ReturnType<typeof pickEliteCallout>;
+} {
   const now = opts.now ?? Date.now();
   const ctx = opts.ctx;
   const prev = opts.prev;
+  const personality = parseCoachPersonality(opts.personality);
   const mode = detectModeProfile({
     gameMode: ctx.gameMode,
     mapName: ctx.mapName,
@@ -142,12 +184,32 @@ export function detectCoachInsights(opts: {
   const insights: CoachInsight[] = [];
   const next: CoachWatchState = { ...prev, lastFedEnemies: [...prev.lastFedEnemies] };
 
+  let memory = opts.memory || emptyMatchMemory(ctx.you?.championName);
   if (!ctx.inGame || !ctx.you || !a) {
-    return { insights: [], next: emptyWatchState(), mode };
+    return {
+      insights: [],
+      next: emptyWatchState(),
+      mode,
+      memory: emptyMatchMemory(),
+      eliteBest: null,
+    };
   }
+  memory = updateMatchMemory(memory, ctx, a);
 
   const you = ctx.you;
   const avoid = opts.avoidLines || [];
+  const seed = Math.floor(ctx.gameTime);
+
+  const speakLine = (kind: string, extra?: string, preferred?: string) => {
+    const base = lineFor(a, kind, mode, extra, preferred);
+    // Rotate variants when avoid would collide
+    let line = base;
+    if (avoid.some((t) => similar(t, line))) {
+      const alt = craftCoachLine(a, kind, mode, `${extra || ""}|alt=${seed}`);
+      if (alt && !similar(alt, line)) line = polishLine(alt, a, mode);
+    }
+    return flavorLine(line, personality, seed);
+  };
 
   // Brain read (additive — enriches LO / scores; never replaces craft path alone)
   let brainLo = "";
@@ -180,7 +242,7 @@ export function detectCoachInsights(opts: {
   // --- Hard: match start once ---
   if (!prev.seenMatchStart && ctx.gameTime >= 8 && ctx.gameTime <= 120) {
     next.seenMatchStart = true;
-    const openLine = lineFor(a, "match_start", mode);
+    const openLine = speakLine("match_start");
     insights.push({
       kind: "match_start",
       score: 45,
@@ -198,7 +260,7 @@ export function detectCoachInsights(opts: {
         kind: "death",
         score: 100,
         reason: "you died — habit for next spawn",
-        line: lineFor(a, "death", mode, ctx.deathReport?.dominant || undefined, s.spokenFallback),
+        line: speakLine("death", ctx.deathReport?.dominant || undefined, s.spokenFallback),
         signature: `death:${you.deaths}:${ctx.deathReport?.dominant || ""}`,
         severity: "urgent",
       });
@@ -208,7 +270,7 @@ export function detectCoachInsights(opts: {
         kind: "kill",
         score: 70,
         reason: "kill/assist — convert now",
-        line: lineFor(a, "kill", mode, undefined, s.spokenFallback),
+        line: speakLine("kill", undefined, s.spokenFallback),
         signature: `kill:${you.kills}:${you.assists}`,
         severity: "warn",
       });
@@ -218,7 +280,7 @@ export function detectCoachInsights(opts: {
         kind: "objective",
         score: 75,
         reason: "objective event",
-        line: lineFor(a, "objective", mode, undefined, s.spokenFallback),
+        line: speakLine("objective", undefined, s.spokenFallback),
         signature: `obj:${s.title}:${Math.floor(ctx.gameTime / 30)}`,
         severity: "warn",
       });
@@ -228,7 +290,7 @@ export function detectCoachInsights(opts: {
         kind: "low_hp",
         score: 90,
         reason: "critical HP while alive",
-        line: lineFor(a, "low_hp", mode, undefined, s.spokenFallback),
+        line: speakLine("low_hp", undefined, s.spokenFallback),
         signature: `hp:crit:${Math.floor(ctx.gameTime / 20)}`,
         severity: "urgent",
       });
@@ -238,7 +300,7 @@ export function detectCoachInsights(opts: {
         kind: "base",
         score: 65,
         reason: "full buy gold sitting",
-        line: lineFor(a, "base", mode, undefined, s.spokenFallback),
+        line: speakLine("base", undefined, s.spokenFallback),
         signature: `base:${goldBucket(you.currentGold, false)}`,
         severity: "info",
       });
@@ -248,7 +310,7 @@ export function detectCoachInsights(opts: {
         kind: "level_up",
         score: 55,
         reason: `level ${you.level} spike`,
-        line: lineFor(a, "level_up", mode, undefined, s.spokenFallback),
+        line: speakLine("level_up", undefined, s.spokenFallback),
         signature: `lvl:${you.level}`,
         severity: "info",
       });
@@ -258,11 +320,199 @@ export function detectCoachInsights(opts: {
         kind: "numbers",
         score: 80,
         reason: "numbers swing",
-        line: lineFor(a, "numbers", mode, undefined, s.spokenFallback),
+        line: speakLine("numbers", undefined, s.spokenFallback),
         signature: `num:${a.team.dead}:${a.enemy.dead}`,
         severity: "warn",
       });
     }
+  }
+
+  // --- Field awareness: ult-unlocked threats, man swings, same-lane ---
+  const field = buildFieldState(ctx);
+  if (field && !you.isDead) {
+    const threatSig = field.priorityThreats.slice(0, 2).join("|");
+    if (threatSig && threatSig !== prev.lastThreatSig) {
+      const top = field.priorityThreats[0];
+      const name = top.split(" ")[0];
+      const ultUnlocked = field.enemiesUltUnlockedAlive.includes(name);
+      if (ultUnlocked || field.priorityThreats[0]) {
+        insights.push({
+          kind: "ult_threat",
+          score: ultUnlocked ? 64 : 52,
+          reason: `priority threat ${name}`,
+          line: flavorLine(
+            ultUnlocked
+              ? `${you.championName}: ${name} alive with ult unlocked — respect R, no free walk-up.`
+              : `${you.championName}: ${name} is a priority threat — track them before you force.`,
+            personality,
+            seed
+          ),
+          signature: `threat:${name}:${ultUnlocked ? "ult" : "fed"}`,
+          severity: "warn",
+        });
+      }
+      next.lastThreatSig = threatSig;
+    }
+
+    if (
+      Math.abs(field.manAdvantage) >= 2 &&
+      field.manAdvantage !== prev.lastManAdv &&
+      Math.abs(field.manAdvantage - (prev.lastManAdv || 0)) >= 2
+    ) {
+      const deadSide =
+        field.manAdvantage > 0
+          ? field.enemiesDead.slice(0, 2).join(" and ") || "enemies"
+          : field.alliesDead.slice(0, 2).join(" and ") || "allies";
+      insights.push({
+        kind: "field_alert",
+        score: 78,
+        reason: `man advantage ${field.manAdvantage}`,
+        line: flavorLine(
+          field.manAdvantage > 0
+            ? `${you.championName}: ${deadSide} down — green light plates or obj, not ego chase.`
+            : `${you.championName}: ${deadSide} down — red light; hold for spawns.`,
+          personality,
+          seed
+        ),
+        signature: `man:${field.manAdvantage}:${field.enemiesDead.length}:${field.alliesDead.length}`,
+        severity: "warn",
+      });
+    }
+    next.lastManAdv = field.manAdvantage;
+
+    if (field.sameLaneEnemiesAlive.length && field.enemiesUltUnlockedAlive.length) {
+      const laneThreats = field.sameLaneEnemiesAlive.filter((n) =>
+        field.enemiesUltUnlockedAlive.includes(n)
+      );
+      if (laneThreats[0]) {
+        insights.push({
+          kind: "lane_pressure",
+          score: 48,
+          reason: `same-lane ult unlocked ${laneThreats[0]}`,
+          line: flavorLine(
+            `${you.championName}: ${laneThreats.slice(0, 2).join(" + ")} same side, ult unlocked — space the wave.`,
+            personality,
+            seed
+          ),
+          signature: `laneult:${laneThreats[0]}:${Math.floor(ctx.gameTime / 45)}`,
+          severity: "info",
+        });
+      }
+    }
+  }
+
+  // ── Live battle reader (skirmish/teamfight jobs) ──
+  if (
+    !you.isDead &&
+    a.battleLine &&
+    a.battlePhase !== "idle" &&
+    (a.battleHeat >= 30 ||
+      a.battlePhase === "teamfight" ||
+      a.battlePhase === "disengage" ||
+      a.battlePhase === "winning" ||
+      a.battlePhase === "losing")
+  ) {
+    const bsig = `${a.battlePhase}:${a.battleJob}:${a.battleFocus || ""}:${a.battleThreat || ""}`;
+    if (bsig !== prev.lastBattleSig) {
+      const sev =
+        a.battlePhase === "disengage" || a.battlePhase === "losing"
+          ? "urgent"
+          : a.battleHeat >= 50
+            ? "warn"
+            : "info";
+      const score =
+        a.battlePhase === "disengage"
+          ? 95
+          : a.battlePhase === "teamfight"
+            ? 88
+            : a.battlePhase === "losing"
+              ? 86
+              : a.battlePhase === "winning"
+                ? 84
+                : 62 + Math.min(20, Math.floor(a.battleHeat / 5));
+      insights.push({
+        kind:
+          a.battlePhase === "disengage"
+            ? "disengage"
+            : a.battleJob === "focus_carry" || a.battleJob === "focus_threat"
+              ? "focus_fire"
+              : "battle",
+        score,
+        reason: `battle ${a.battlePhase}: ${a.battleJob}`,
+        line: flavorLine(a.battleLine, personality, seed),
+        signature: `battle:${bsig}:${Math.floor(ctx.gameTime / 10)}`,
+        severity: sev,
+      });
+      next.lastBattleSig = bsig;
+    }
+  } else if (a.battlePhase === "idle") {
+    next.lastBattleSig = null;
+  }
+
+  // Fight green / red lights from combat intel (analytics layer)
+  if (a.fightLight === "green" && prev.lastFightLight !== "green" && !you.isDead) {
+    const line =
+      a.convertHint ||
+      speakLine(
+        "numbers",
+        undefined,
+        `${you.championName}: green light ${a.team.alive}v${a.enemy.alive} — convert now, not ego chase.`
+      );
+    insights.push({
+      kind: "fight_window",
+      score: 82,
+      reason: `fight green: ${a.fightReason}`,
+      line: flavorLine(line, personality, seed),
+      signature: `fight:green:${a.enemy.dead}:${a.team.dead}:${Math.floor(ctx.gameTime / 20)}`,
+      severity: "warn",
+    });
+  } else if (
+    a.fightLight === "red" &&
+    prev.lastFightLight !== "red" &&
+    !you.isDead &&
+    a.riskFlags.includes("critical_hp") === false
+  ) {
+    const line =
+      a.holdHint ||
+      speakLine(
+        "numbers",
+        undefined,
+        `${you.championName}: red light — hold; wait for the high-% window.`
+      );
+    insights.push({
+      kind: "hold_window",
+      score: 76,
+      reason: `fight red: ${a.fightReason}`,
+      line: flavorLine(line, personality, seed),
+      signature: `fight:red:${a.team.dead}:${Math.floor(ctx.gameTime / 25)}`,
+      severity: "warn",
+    });
+  }
+  next.lastFightLight = a.fightLight;
+
+  // Objective clock windows (SR) — speak once per window
+  if (
+    !a.aram &&
+    !a.arena &&
+    a.objectiveWindows[0] &&
+    a.minute !== prev.lastObjMinute &&
+    [5, 8, 14, 20, 25].includes(a.minute)
+  ) {
+    const objLine =
+      a.fightLight === "green"
+        ? `${you.championName}: ${a.objectiveWindows[0]} — numbers good, set up now.`
+        : a.fightLight === "red"
+          ? `${you.championName}: ${a.objectiveWindows[0]} — don't force alone; crash and wait.`
+          : `${you.championName}: ${a.objectiveWindows[0]} — shove first, arrive together.`;
+    insights.push({
+      kind: "objective_clock",
+      score: 50,
+      reason: a.objectiveWindows[0],
+      line: flavorLine(objLine, personality, seed),
+      signature: `objclock:${a.minute}`,
+      severity: "info",
+    });
+    next.lastObjMinute = a.minute;
   }
 
   // --- Deltas from analytics (soft/hard without agent) ---
@@ -271,7 +521,7 @@ export function detectCoachInsights(opts: {
       kind: "numbers",
       score: 80,
       reason: `allies dead ${a.team.dead}`,
-      line: lineFor(a, "numbers", mode),
+      line: speakLine("numbers"),
       signature: `num:ally:${a.team.dead}`,
       severity: "warn",
     });
@@ -281,7 +531,7 @@ export function detectCoachInsights(opts: {
       kind: "numbers",
       score: 80,
       reason: `enemies dead ${a.enemy.dead}`,
-      line: lineFor(a, "numbers", mode),
+      line: speakLine("numbers"),
       signature: `num:enemy:${a.enemy.dead}`,
       severity: "warn",
     });
@@ -296,7 +546,7 @@ export function detectCoachInsights(opts: {
         kind: "kill",
         score: 68,
         reason: "you got a kill",
-        line: lineFor(a, "kill", mode),
+        line: speakLine("kill"),
         signature: `kill:${you.kills}`,
         severity: "warn",
       });
@@ -313,7 +563,7 @@ export function detectCoachInsights(opts: {
       kind: "low_hp",
       score: 92,
       reason: "HP crossed critical",
-      line: lineFor(a, "low_hp", mode),
+      line: speakLine("low_hp"),
       signature: `hp:crit`,
       severity: "urgent",
     });
@@ -321,14 +571,14 @@ export function detectCoachInsights(opts: {
     hpb === 2 &&
     prev.lastHpBucket === 2 &&
     !you.isDead &&
-    sinceSpeak >= 18_000
+    sinceSpeak >= 22_000
   ) {
     insights.push({
       kind: "low_hp",
       score: 58,
       reason: "still critical HP — guide reset",
-      line: lineFor(a, "low_hp", mode),
-      signature: `hp:sustain:${Math.floor(ctx.gameTime / 20)}`,
+      line: speakLine("low_hp", "sustain"),
+      signature: `hp:sustain:${Math.floor(ctx.gameTime / 25)}`,
       severity: "urgent",
     });
   }
@@ -342,7 +592,7 @@ export function detectCoachInsights(opts: {
         kind: "base",
         score: 62,
         reason: "gold crossed buy threshold",
-        line: lineFor(a, "base", mode),
+        line: speakLine("base"),
         signature: `gold:${gb}`,
         severity: "info",
       });
@@ -352,7 +602,7 @@ export function detectCoachInsights(opts: {
         kind: "gold_sit",
         score: 50,
         reason: "sitting on buy gold too long",
-        line: lineFor(a, "gold_sit", mode),
+        line: speakLine("gold_sit"),
         signature: `goldsit:${Math.floor(now / 60_000)}`,
         severity: "warn",
       });
@@ -371,7 +621,7 @@ export function detectCoachInsights(opts: {
       kind: "level_up",
       score: 58,
       reason: `hit ${you.level}`,
-      line: lineFor(a, "level_up", mode),
+      line: speakLine("level_up"),
       signature: `lvl:${you.level}`,
       severity: "info",
     });
@@ -384,7 +634,7 @@ export function detectCoachInsights(opts: {
       kind: "pressure_flip",
       score: 48,
       reason: `pressure ${prev.lastPressure} → ${a.pressure}`,
-      line: lineFor(a, "pressure_flip", mode),
+      line: speakLine("pressure_flip"),
       signature: `pressure:${a.pressure}`,
       severity: "info",
     });
@@ -397,7 +647,7 @@ export function detectCoachInsights(opts: {
       kind: "wincon_change",
       score: 46,
       reason: `win con → ${a.winCon}`,
-      line: lineFor(a, "wincon_change", mode),
+      line: speakLine("wincon_change"),
       signature: `wincon:${a.winCon}`,
       severity: "info",
     });
@@ -412,7 +662,7 @@ export function detectCoachInsights(opts: {
       kind: "fed_enemy_new",
       score: 52,
       reason: `${newFed[0]} is fed`,
-      line: lineFor(a, "fed_enemy_new", mode),
+      line: speakLine("fed_enemy_new"),
       signature: `fed:${newFed[0]}`,
       severity: "warn",
     });
@@ -426,7 +676,7 @@ export function detectCoachInsights(opts: {
       kind: "death_pattern",
       score: 56,
       reason: "repeat death habit",
-      line: lineFor(a, "death_pattern", mode, dom),
+      line: speakLine("death_pattern", dom),
       signature: `pattern:${dom}`,
       severity: "warn",
     });
@@ -511,16 +761,18 @@ export function detectCoachInsights(opts: {
   // Filter repeats + score adjustments (+ light brain alignment)
   // (sinceSpeak already computed above for sustained-HP)
   for (const ins of insights) {
-    if (prev.lastSignatures.includes(ins.signature)) ins.score -= 35;
-    if (avoid.some((t) => similar(t, ins.line))) ins.score -= 40;
+    if (prev.lastSignatures.includes(ins.signature)) ins.score -= 45;
+    if (avoid.some((t) => similar(t, ins.line))) ins.score -= 55;
+    // Stronger anti-repeat: kill near-duplicates even if signature differs
+    if (avoid.some((t) => keyPhraseOverlap(t, ins.line) >= 0.65)) ins.score -= 30;
     // Soft dampen chatter right after a line — never hard-mute death / low HP
     if (
-      sinceSpeak < 8_000 &&
+      sinceSpeak < 10_000 &&
       ins.kind !== "death" &&
       ins.kind !== "low_hp" &&
       ins.severity !== "urgent"
     ) {
-      ins.score -= 18;
+      ins.score -= 22;
     }
     // Nudge insights that match brain focus (additive only)
     if (brainFocus === "numbers" && ins.kind === "numbers") ins.score += 10;
@@ -539,8 +791,60 @@ export function detectCoachInsights(opts: {
     if (ins.kind === "kill" && brainFight === "dps_backline") ins.score += 3;
   }
 
+  // ── Elite synthesizer — merge high-score unique callouts ──
+  let eliteBest: ReturnType<typeof pickEliteCallout> = null;
+  try {
+    const elite = synthesizeEliteCallouts({
+      ctx,
+      analytics: a,
+      mode,
+      memory,
+      personality,
+      seed: Math.floor(ctx.gameTime),
+    });
+    eliteBest = pickEliteCallout(elite, "normal");
+    for (const e of elite.slice(0, 6)) {
+      // Map elite into insights so pickSpeakableInsight can choose them
+      const kindMap: Record<string, InsightKind> = {
+        death: "death",
+        low_hp: "low_hp",
+        fight_window: "fight_window",
+        hold_window: "hold_window",
+        ult_threat: "ult_threat",
+        habit: "death_pattern",
+        predict: "brain_window",
+        base: "base",
+        level_up: "level_up",
+        tempo: "tempo_flip",
+        identity: "tempo_flip",
+        battle: "battle",
+        shotcall: "battle",
+      };
+      insights.push({
+        kind: kindMap[e.kind] || "brain_window",
+        score: e.score + 8, // slight boost — elite is our differentiator
+        reason: `elite:${e.edge}`,
+        line: e.line,
+        signature: `elite:${e.signature}`,
+        severity:
+          e.priority === "critical"
+            ? "urgent"
+            : e.priority === "convert" || e.priority === "survive"
+              ? "warn"
+              : "info",
+      });
+    }
+  } catch {
+    /* elite optional */
+  }
+
+  // Re-apply anti-repeat after elite merge
+  for (const ins of insights) {
+    if (avoid.some((t) => similar(t, ins.line))) ins.score -= 25;
+  }
+
   insights.sort((x, y) => y.score - x.score);
-  return { insights, next, mode };
+  return { insights, next, mode, memory, eliteBest };
 }
 
 function similar(a: string, b: string): boolean {
@@ -554,11 +858,23 @@ function similar(a: string, b: string): boolean {
   const nb = n(b);
   if (!na || !nb) return false;
   if (na === nb || na.includes(nb) || nb.includes(na)) return true;
-  const wa = new Set(na.split(" ").filter((w) => w.length > 3));
-  const wb = nb.split(" ").filter((w) => w.length > 3);
+  return keyPhraseOverlap(na, nb) >= 0.55;
+}
+
+/** Word-overlap ratio for anti-repeat (ignores tiny function words) */
+function keyPhraseOverlap(a: string, b: string): number {
+  const toks = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 3 && !["with", "from", "then", "that", "this", "your", "have"].includes(w));
+  const wa = new Set(toks(a));
+  const wb = toks(b);
+  if (!wa.size || !wb.length) return 0;
   let hit = 0;
   for (const w of wb) if (wa.has(w)) hit++;
-  return wb.length > 0 && hit >= 3 && hit / wb.length >= 0.55;
+  return hit / Math.max(wb.length, 1);
 }
 
 /** Pick best insight if score clears threshold. */

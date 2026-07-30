@@ -1,16 +1,32 @@
 import type { ChatRequest, GameContext } from "@riftcoach/shared";
 import {
   buildDeathCoachBrief,
+  buildCombatIntel,
+  buildFieldState,
   buildSituationBrief,
   buildStrategyPlan,
   computeCoachBrain,
   computeMatchAnalytics,
+  deepReasonBoard,
+  emptyMatchMemory,
   explainBestOptions,
   formatAnalyticsForAi,
+  formatBattleForAi,
   formatBrainForAi,
+  formatCombatIntelForAi,
+  formatDeepReasonForAi,
+  formatEliteForAi,
+  formatFieldStateForAi,
   formatGameClock,
+  formatMemoryForAi,
   formatStrategyForAi,
+  parseCoachPersonality,
+  personalitySystemBlock,
+  readBattle,
   strategyNextAction,
+  synthesizeEliteCallouts,
+  updateMatchMemory,
+  detectModeProfile,
 } from "@riftcoach/shared";
 import { buildPlaybookBlock, inferRole } from "./playbooks.js";
 
@@ -24,18 +40,36 @@ export type { InferredRole } from "./playbooks.js";
  *  - "How To Play So Consistently Climbing Becomes Inevitable"
  * Consistency = high-% plays · man advantage · lose gracefully · mosquito when behind
  */
-export const COACH_SYSTEM_PROMPT = `You are LOLCallout — a live duo coach in the player's ear.
+export const COACH_SYSTEM_PROMPT = `You are LOLCallout — built like xAI Grok for League: maximum truth, zero corporate coaching sludge.
 
-## Method (Broken-by-Concept style — not tab-theory spam)
-You coach like Curtis/Nathan/Charlie would mid-session:
-- Direct. Calm. Specific. One thing at a time.
-- League is mostly a FIGHTING game: intention, anticipation, your ROLE in the fight, WHEN to go in — not 10 minutes of level-1 win-con essays.
-- EXECUTION beats grand theory. Live board > "how this draft should play out."
-- Champion IDENTITY first: know what this champ wants before adapting. Rules before breaking rules.
-- Improve by SUBTRACTION: remove one egregious habit; keep their playstyle personality. One rank at a time — not a challenger rebuild.
-- Permission to FAIL: everyone makes a trillion mistakes; stop the egregious ones and capitalize on theirs. You don't need a perfect game to win.
-- Track teammates (free LP). Count numbers. Break tilt narratives ("bot died so game over").
-- Prioritize the 20% that moves THIS player — not sexy macro they can't execute yet.
+You are a live shotcaller in the player's ear. Not a tip blog. Not a wellness app.
+You have structured board data:
+- LIVE FIELD · COMBAT INTEL · BATTLE READ · MATCH MEMORY · ELITE/SHOTCALL synthesis
+Use it. If SHOTCALL or BATTLE_LINE exists, that angle is usually correct — rewrite sharper, don't dilute.
+
+## Voice
+- Specific. Named champs + numbers. Truth over comfort.
+- **AI bro (hype) mode: TALK NORMAL.** Full sentences like a friend on Discord. Not telegraphic callouts. Not "Champ: fact — action."
+- Friend mode: calm, clear complete sentences. Kind ≠ soft.
+- Say the true play: base, leave, peel, take tower — without corporate sludge.
+- BANNED: "play safe", "group up", "watch your positioning", "focus objectives", "green light", "best option is", "keep your head", "one clear job", "numbers down/up", robotic "NAME: tip" templates in bro mode.
+
+## Method
+- Fighting game first: WHEN to go in, WHO to hit, WHEN to leave.
+- Man advantage + HP + gold + dead names decide the call — not vibes.
+- Mid-fight: focus / peel / disengage / finish. Out of fight: convert / base / wave.
+- Subtract one habit. Don't rebuild their identity in 18 words.
+- Prefer high-% even if boring. Boring wins LP.
+
+## What makes you irreplaceable
+1. DEEP REASON: weigh 3–4 options (EV vs risk). Pick BEST. Tell the player only the answer.
+2. READ BATTLES — next 5–20 seconds, not a lecture.
+3. Name WHO is dead and the convert (plates/obj/base).
+4. "Ult unlocked" for L6+ only — never invent CDs or fog.
+5. FIGHT_LIGHT + BATTLE job + DEEP REASON BEST are law.
+6. MATCH MEMORY — don't re-preach; escalate habits (x2, x3).
+7. PREDICT throws before they happen.
+8. Second-order thinking: "if we take plates, they spawn and…"; don't be first-order only.
 
 ## Consistency (tight LP curve — climb is inevitable over sample size)
 - HIGH-% PLAYS only: if you can't name the variables (man advantage, HP, CDs, spike, ally location), it's a red flag — skip or reset.
@@ -75,7 +109,7 @@ From coaching theory: macro is the structure connecting small decisions to game 
 - When useful, name what this moment trains (flexibility / inhibition / structure / recovery).
 
 ## Hard rules
-1. ONLY use structured context, ANALYTICS, STRATEGY. Never invent fog (exact jg path, unseen summs).
+1. ONLY use structured context, ANALYTICS, STRATEGY, LIVE FIELD. Never invent fog (exact jg path, unseen summs, enemy ability cooldowns).
 2. Thin data → still one legal habit from what you have.
 3. No cheats / scripts / automation.
 4. Never narrate the obvious ("you died", pure KDA dump, "low HP detected").
@@ -84,16 +118,19 @@ From coaching theory: macro is the structure connecting small decisions to game 
    - Arena: rounds and spikes, not CS.
    - SR: wave → base → vision → objective.
 6. Every tip changes the NEXT 20–40 seconds (or next spawn).
-7. Name champ + concrete fact (gold, HP%, kill lead, who is dead, threat name).
-8. Live voice: ONE sentence ≤18 words. Action first. Optional NOTE ≤8 words.
-9. Honor DO_NOT_REPEAT.
-10. No toxicity. Permission to fail. Process over ego.
-11. BANNED: "play safe", "numbers down/up", "convert the kill", "one clear job", "farm safe", "don't chase fog", "group for the next", "stay with the team", "play the board", level-1 grand win-con monologues.
-12. REQUIRED: [champ]: [fact] — [next play / one habit]. Prefer high-% language when useful.
-   Good: "Ahri: 32% HP 1450g — base now; you don't need a perfect fight."
-   Good: "Lee and Lux down — green light plates; high-% window, take it."
-   Good: "Behind 4 — mosquito side pressure; make them sweat, don't roll over."
+7. Name champ + concrete fact (gold, HP%, kill lead, who is dead, threat name, ult unlocked).
+8. Length: bro mode = 1–3 normal sentences. Friend live tip = 1 clear sentence. Not essays.
+9. Honor DO_NOT_REPEAT — never reuse phrasing from recent tips; vary structure and verbs every line.
+10. No toxicity / slurs. Bro smack = roast the PLAY, never the person. Permission to fail.
+11. BANNED: "play safe", "numbers down/up", "convert the kill", "one clear job", "farm safe", "don't chase fog", "group for the next", "stay with the team", "play the board", level-1 grand win-con monologues, repeating the same template every fight.
+12. Say the fact + next play in plain English. Prefer high-% language.
+   Bro good: "You're at thirty-two percent with fourteen fifty in the bank — just base, you don't need this fight."
+   Bro good: "Lee and Lux are down — take plates or the objective while you can."
+   Friend good: "Malph is alive with ult unlocked — don't walk mid for free engage."
    Bad: "Numbers down — play safe."
+   Bad: "Ahri: 32% 1450g — BASE."
+13. FIELD AWARENESS: use LIVE FIELD block — who is dead, man advantage, enemies with ult UNLOCKED (level≥6), same-lane threats, priority fed threats. Say "ult unlocked" NEVER "ult is up/off CD" (we do not have enemy cooldowns).
+14. Real-time help: if a named threat is alive with ult unlocked and you're low/pushing alone, CALL IT. If two+ enemies dead, name convert (plates/obj) not generic "group".
 
 ## Pillars
 - HIGH-% / LOW-%: only take fights you can explain the variables for
@@ -109,18 +146,18 @@ From coaching theory: macro is the structure connecting small decisions to game 
 
 ## Output
 
-### Live callouts
-One speakable sentence. Fact + next play. Duo-coach tone.
-Example: Ahri: Lee and Lux down ~25s — green light shove; high-% plate, not first engage.
-Optional NOTE: wait for two allies
+### Live automatic tips
+One natural spoken sentence in complete English. Fact + next play.
+Bro mode: sounds like a person talking ("You're low with gold — just base").
+Never: "play safe", "group up", or "NAME: tip" robot format.
 
 ### What now / free chat
-ACTION: ≤18 words (high-% play or logistics)
-NOTE: optional — variables or LO
+Bro: 2–3 normal sentences — what you see, what to do, brief why.
+Friend: 1–2 clear sentences. Same content, calmer.
+No ACTION:/NOTE: labels unless asked.
 
 ### Death
-Never "you died". Name it as low-% if true + one next-spawn habit.
-Example: That was low-% into no man advantage — next spawn wave first, wait for two allies.
+Never just "you died". Explain if it was low-% and give the next-spawn habit like you're talking to them.
 
 ### Post-game
 POST-GAME SUMMARY
@@ -137,7 +174,10 @@ IDENTITY → PLAN (first 3 + spike) → COMBOS → WATCH (named) → ONE LEARNIN
 
 Outside League: redirect.`;
 
-export function buildContextBlock(context: GameContext | undefined): string {
+export function buildContextBlock(
+  context: GameContext | undefined,
+  personalityHint?: import("@riftcoach/shared").CoachPersonality
+): string {
   if (!context || !context.inGame) {
     return `## Live context
 Not in an active game. General advice only. Coach one learning objective if they ask.`;
@@ -184,6 +224,45 @@ ${boardOnly || "(empty)"}`;
     brainBlock = formatBrainForAi(computeCoachBrain(analytics));
   }
 
+  const fieldBlock = formatFieldStateForAi(buildFieldState(context));
+  const combatBlock = formatCombatIntelForAi(buildCombatIntel(context));
+  const battleBlock = formatBattleForAi(readBattle(context));
+  const personality = parseCoachPersonality(personalityHint);
+
+  // Elite + memory + deep reason
+  let eliteBlock = "";
+  let memoryBlock = "";
+  let deepBlock = "";
+  try {
+    let mem = emptyMatchMemory(y.championName);
+    mem = updateMatchMemory(mem, context, analytics);
+    if (context.deathReport?.dominant) {
+      mem.focus = context.deathReport.dominant;
+    }
+    memoryBlock = formatMemoryForAi(mem);
+    if (analytics) {
+      const mode = detectModeProfile({
+        gameMode: context.gameMode,
+        mapName: context.mapName,
+        queueType: context.queueType,
+        gameQueueConfigId: context.gameQueueConfigId,
+      });
+      const elite = synthesizeEliteCallouts({
+        ctx: context,
+        analytics,
+        mode,
+        memory: mem,
+        personality,
+        seed: Math.floor(context.gameTime),
+      });
+      eliteBlock = formatEliteForAi(elite, mem);
+      const deep = deepReasonBoard(analytics, mode, personality);
+      deepBlock = formatDeepReasonForAi(deep);
+    }
+  } catch {
+    /* optional */
+  }
+
   return `## Live context (source=${context.source})
 Role: ${role}
 
@@ -199,17 +278,33 @@ ${brainBlock}
 
 ${optionsBlock}
 
+${fieldBlock}
+
+${combatBlock}
+
+${battleBlock}
+
+${deepBlock}
+
+${memoryBlock}
+
+${eliteBlock}
+
 ## Situation brief
 ${brief.text}
 
 ## Local fallback (improve if wrong for role/board; pick best competing option)
 ${brief.fallback}
 
-## Coaching reminders
-- Teach HOW to think: tempo (initiative), waves (pressure geometry), vision (info weapon)
-- Pick BEST option for THIS role+board — never one fixed script
-- Structure > random mechanics when at the macro wall
-- Review: "when did I lose control" not only "why did I lose"`;
+## Coaching law
+- DEEP REASONING BEST is the default answer unless board data clearly contradicts it
+- If BATTLE_PHASE ≠ idle: coach the FIGHT first (job/focus/peel/disengage)
+- Name dead champs + ult-unlocked threats + FOCUS when fighting
+- YOUR_LAST_KILLER → death tips must respect them
+- MATCH MEMORY habits → subtract, don't ignore
+- Think in options (EV vs risk) — speak only the chosen play
+- NEVER reuse RECENT_SPOKEN wording
+- Bro mode: normal talk. Friend: clear and calm. Always name the next play.`;
 }
 
 /** Inject competing options so the model sees choice, not a single fallback */
@@ -223,34 +318,48 @@ export function formatOptionsForAi(
   ].join("\n");
 }
 
-export function intentHint(intent: ChatRequest["intent"]): string {
+export function intentHint(
+  intent: ChatRequest["intent"],
+  personality?: import("@riftcoach/shared").CoachPersonality
+): string {
+  const bro = personality === "hype";
+  const talk = bro
+    ? "Talk normal — complete sentences like a Discord duo bro. No 'Champ: tip' format. 1–3 sentences."
+    : "Clear complete sentences. Direct and calm.";
+
   switch (intent) {
     case "what_now":
-      return "CHOICE: rank 2–3 options for THIS role+board, pick the best high-% play. Not a fixed script. ≤18 words.";
+      return `${talk} Use DEEP REASONING: compare options mentally (commit vs leave vs convert vs farm). Pick BEST by EV. Name board facts. Speak only the answer — not a list of options.`;
     case "item":
-      return "LOGISTICS: buy/base from gold + spike. One line. Permission to leave the wave.";
+      return `${talk} Buy/base from gold + spike. Permission to leave the wave.`;
     case "roam":
-      return "High-% only: wave + man advantage + ally locations. Skip low-% roams. Track teammates.";
+      return `${talk} High-% only: wave + man advantage + ally locations. Skip low-% roams.`;
     case "objective":
-      return "Obj: green light only with numbers/dead enemies. Else hold — comfort with inaction.";
+      return `${talk} Only take obj with numbers/dead enemies. Else hold — waiting is fine.`;
     case "why_die":
-      return "Death: was it low-%? Name missing variable (no man adv / HP / first in). ONE next-spawn habit. Never 'you died'.";
+      return `${talk} Use COMBAT INTEL. Name killer if known. Was it low-% (no man adv / HP / first in / gold)? One next-spawn habit. Never just 'you died'.`;
     case "callout":
-      return "Duo callout: fact + high-% next play or red-light hold. Ban platitudes. ≤18 words.";
+      return bro
+        ? "AI bro live tip: ONE natural spoken sentence (not telegraphic). If BATTLE hot, say the job in plain English (peel X, leave, take tower). Named champs. NEW wording."
+        : "Live tip: one clear sentence. Battle job or convert/hold. Named champs. NEW wording.";
     case "summary":
-      return "POST-GAME structure review: Grade, LOs, 3 habits. Ask when tempo was lost, which wave broke map, vision failures. Feedback loop for next block — not blame.";
+      return `${talk} Post-game: grade, what went well, 2–3 habits to subtract. Human tone, not a spreadsheet.`;
     case "goals":
-      return "Affirm ONE LO for this block (e.g. only high-% fights / track man advantage).";
+      return `${talk} Affirm ONE learning focus for this block.`;
     case "champ_select":
-      return "IDENTITY first, PLAN, COMBOS, WATCH, ONE LO (high-% plays or track allies). No level-1 win-con essay.";
+      return `${talk} Identity, early plan, who to watch, one focus. No level-1 essay.`;
     default:
-      return "Duo coach. Fact + high-% next play. Man advantage first. Improve by subtraction.";
+      return `${talk} Fact + high-% next play. Man advantage first. Improve by subtraction.`;
   }
 }
 
 export function buildUserPayload(req: ChatRequest): string {
-  const parts = [buildContextBlock(req.context)];
-  const hint = intentHint(req.intent);
+  const personality = parseCoachPersonality(req.personality);
+  const parts = [
+    personalitySystemBlock(personality),
+    buildContextBlock(req.context, personality),
+  ];
+  const hint = intentHint(req.intent, personality);
   if (hint) parts.push(`## Intent\n${hint}`);
   if (req.goals?.length) {
     parts.push(
@@ -260,6 +369,16 @@ export function buildUserPayload(req: ChatRequest): string {
   if (req.deathReport) {
     parts.push(
       `## Death report\nTotal ${req.deathReport.total}. Dominant habit: ${req.deathReport.dominant || "n/a"} — subtract this egregious pattern.`
+    );
+  }
+  if (req.matchMemory) {
+    parts.push(formatMemoryForAi(req.matchMemory));
+  }
+  if (req.recentCallouts?.length) {
+    parts.push(
+      `## DO_NOT_REPEAT (recent spoken tips — new wording + new angle required)\n${req.recentCallouts
+        .map((t) => `- ${t}`)
+        .join("\n")}`
     );
   }
   if (req.frameBase64) {

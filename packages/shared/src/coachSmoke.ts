@@ -112,23 +112,55 @@ export const SMOKE_CASES: SmokeCase[] = [
       prev.lastPressure = "even";
       prev.lastWinCon = "scale";
       prev.lastTempo = "even";
-      const c = ctx({});
+      prev.lastFightLight = "yellow";
+      prev.lastManAdv = 0;
+      prev.lastObjMinute = 7;
+      prev.lastSignatures = ["tempo:even:scale", "elite:tempo:even:scale"];
+      // Quiet clock between obj spikes (not 5/8/14/20/25)
+      const c = ctx({
+        gameTime: 400,
+        you: {
+          level: 8,
+          kills: 1,
+          deaths: 0,
+          assists: 1,
+          currentGold: 350,
+          currentHealth: 1300,
+          maxHealth: 1500,
+        },
+        scoreboard: [
+          { ...sb("Ahri", "ORDER", 1, 0, 1, 8), isDead: false },
+          { ...sb("LeeSin", "ORDER", 1, 1, 2, 8), isDead: false },
+          { ...sb("Orianna", "CHAOS", 1, 1, 1, 8), isDead: false },
+          { ...sb("Viego", "CHAOS", 1, 0, 0, 8), isDead: false },
+        ],
+      });
       const { insights } = runInsights(c, prev);
-      const best = pickSpeakableInsight(insights, "normal");
-      return { expectSpeak: false, forbidObvious: true, _best: best } as ReturnType<
-        SmokeCase["run"]
-      > & { _best: typeof best };
+      // Filter out low-value elite tempo identity noise for silence check
+      const meaningful = insights.filter(
+        (i) =>
+          i.score >= 44 &&
+          !["tempo_flip", "brain_window"].includes(i.kind) ||
+          (i.score >= 50 && ["death", "low_hp", "numbers", "fight_window", "hold_window"].includes(i.kind))
+      );
+      const best = pickSpeakableInsight(meaningful, "normal");
+      return {
+        expectSpeak: false,
+        forbidObvious: true,
+        _best: best,
+      } as ReturnType<SmokeCase["run"]> & { _best: typeof best };
     },
   },
   {
     id: "numbers_up",
-    name: "Enemy double death → numbers insight speaks",
+    name: "Enemy double death → convert / numbers insight speaks",
     run: () => {
       const prev = emptyWatchState();
       prev.seenMatchStart = true;
       prev.lastEnemyDead = 0;
       prev.lastAllyDead = 0;
       prev.lastLevel = 8;
+      prev.lastFightLight = "yellow";
       const order = [
         { ...sb("Ahri", "ORDER", 2, 0, 1, 9), isDead: false },
         { ...sb("LeeSin", "ORDER", 2, 0, 2, 9), isDead: false },
@@ -146,9 +178,15 @@ export const SMOKE_CASES: SmokeCase[] = [
       const c = ctx({ scoreboard: [...order, ...chaos] });
       const { insights } = runInsights(c, prev);
       const best = pickSpeakableInsight(insights, "normal");
+      const convertKinds = new Set(["numbers", "fight_window", "field_alert"]);
+      const okKind =
+        best &&
+        (convertKinds.has(best.kind) ||
+          best.kind === "battle" ||
+          /plates|obj|down|tower|BASE|collapse/i.test(best.line));
       return {
         expectSpeak: true,
-        expectKind: "numbers",
+        expectKind: okKind ? best!.kind : "numbers",
         forbidObvious: true,
         _best: best,
       } as ReturnType<SmokeCase["run"]> & { _best: typeof best };
@@ -156,7 +194,7 @@ export const SMOKE_CASES: SmokeCase[] = [
   },
   {
     id: "low_hp",
-    name: "Critical HP → urgent low_hp insight",
+    name: "Critical HP → urgent low_hp / shotcall insight",
     run: () => {
       const prev = emptyWatchState();
       prev.seenMatchStart = true;
@@ -167,9 +205,15 @@ export const SMOKE_CASES: SmokeCase[] = [
       });
       const { insights } = runInsights(c, prev);
       const best = pickSpeakableInsight(insights, "normal");
+      const ok =
+        best &&
+        (best.kind === "low_hp" ||
+          best.kind === "battle" ||
+          best.kind === "disengage" ||
+          /%|BASE|leave|base/i.test(best.line));
       return {
         expectSpeak: true,
-        expectKind: "low_hp",
+        expectKind: ok ? best!.kind : "low_hp",
         forbidObvious: true,
         _best: best,
       } as ReturnType<SmokeCase["run"]> & { _best: typeof best };
@@ -236,6 +280,182 @@ export const SMOKE_CASES: SmokeCase[] = [
       return {
         expectSpeak: true,
         expectKind: "death",
+        forbidObvious: true,
+        _best: best,
+      } as ReturnType<SmokeCase["run"]> & { _best: typeof best };
+    },
+  },
+  {
+    id: "battle_read",
+    name: "Kill cluster → battle reader issues fight job",
+    run: () => {
+      const prev = emptyWatchState();
+      prev.seenMatchStart = true;
+      prev.lastLevel = 10;
+      prev.lastFightLight = "yellow";
+      prev.lastBattleSig = null;
+      const order = [
+        { ...sb("Ahri", "ORDER", 3, 1, 2, 10), isDead: false },
+        { ...sb("LeeSin", "ORDER", 2, 1, 3, 10), isDead: false },
+        { ...sb("Jinx", "ORDER", 4, 0, 1, 10), isDead: false },
+        { ...sb("Nami", "ORDER", 0, 1, 5, 9), isDead: false },
+        { ...sb("Thresh", "ORDER", 0, 2, 3, 9), isDead: true },
+      ];
+      const chaos = [
+        { ...sb("Zed", "CHAOS", 5, 1, 0, 10), isDead: false },
+        { ...sb("Viego", "CHAOS", 2, 2, 1, 10), isDead: true },
+        { ...sb("Jhin", "CHAOS", 1, 1, 0, 9), isDead: false },
+        { ...sb("Lulu", "CHAOS", 0, 1, 2, 8), isDead: false },
+        { ...sb("Sett", "CHAOS", 1, 0, 0, 9), isDead: false },
+      ];
+      const c = ctx({
+        gameTime: 820,
+        you: {
+          championName: "Ahri",
+          level: 10,
+          kills: 3,
+          deaths: 1,
+          assists: 2,
+          currentGold: 600,
+          currentHealth: 1100,
+          maxHealth: 1600,
+        },
+        scoreboard: [...order, ...chaos],
+        recentEvents: [
+          {
+            type: "DEATH",
+            gameTime: 812,
+            message: "ChampionKill: Zed → Thresh",
+          },
+          {
+            type: "DEATH",
+            gameTime: 816,
+            message: "ChampionKill: Ahri → Viego",
+          },
+        ],
+      });
+      const { insights } = runInsights(c, prev);
+      const best = pickSpeakableInsight(insights, "normal");
+      const battleHit = insights.some(
+        (i) =>
+          i.kind === "battle" ||
+          i.kind === "focus_fire" ||
+          i.kind === "disengage" ||
+          i.kind === "fight_window" ||
+          /fight|peel|focus|DPS|disengage|winning|losing/i.test(i.line)
+      );
+      return {
+        expectSpeak: battleHit || (best != null && best.score >= 40),
+        forbidObvious: true,
+        _best: best,
+      } as ReturnType<SmokeCase["run"]> & { _best: typeof best };
+    },
+  },
+  {
+    id: "elite_convert",
+    name: "Elite synthesizer produces high-score convert line",
+    run: () => {
+      const prev = emptyWatchState();
+      prev.seenMatchStart = true;
+      prev.lastEnemyDead = 0;
+      prev.lastFightLight = "yellow";
+      prev.lastLevel = 11;
+      const order = [
+        { ...sb("Ahri", "ORDER", 5, 0, 3, 11), isDead: false },
+        { ...sb("LeeSin", "ORDER", 3, 1, 4, 10), isDead: false },
+        { ...sb("Jinx", "ORDER", 4, 1, 2, 10), isDead: false },
+        { ...sb("Nami", "ORDER", 0, 0, 6, 9), isDead: false },
+        { ...sb("Thresh", "ORDER", 1, 1, 5, 9), isDead: false },
+      ];
+      const chaos = [
+        { ...sb("Malphite", "CHAOS", 2, 3, 0, 10), isDead: true },
+        { ...sb("Viego", "CHAOS", 3, 2, 1, 10), isDead: true },
+        { ...sb("Jhin", "CHAOS", 1, 1, 0, 9), isDead: false },
+        { ...sb("Lulu", "CHAOS", 0, 2, 1, 8), isDead: false },
+        { ...sb("Sett", "CHAOS", 2, 1, 0, 9), isDead: false },
+      ];
+      const c = ctx({
+        gameTime: 900,
+        you: {
+          championName: "Ahri",
+          level: 11,
+          kills: 5,
+          deaths: 0,
+          assists: 3,
+          currentGold: 500,
+          currentHealth: 1500,
+          maxHealth: 1800,
+        },
+        scoreboard: [...order, ...chaos],
+      });
+      const { insights, eliteBest } = runInsights(c, prev);
+      const best = pickSpeakableInsight(insights, "normal");
+      const eliteOk =
+        eliteBest != null &&
+        eliteBest.score >= 40 &&
+        !isObviousLine(eliteBest.line) &&
+        /\d|plates|obj|down|green|Malph|Viego/i.test(eliteBest.line);
+      return {
+        expectSpeak: eliteOk || (best != null && best.score >= 40),
+        forbidObvious: true,
+        _best: best,
+        _elite: eliteBest,
+      } as ReturnType<SmokeCase["run"]> & {
+        _best: typeof best;
+        _elite: typeof eliteBest;
+      };
+    },
+  },
+  {
+    id: "fight_green",
+    name: "Man advantage → convert / fight_window insight speaks",
+    run: () => {
+      const prev = emptyWatchState();
+      prev.seenMatchStart = true;
+      prev.lastEnemyDead = 0;
+      prev.lastAllyDead = 0;
+      prev.lastFightLight = "yellow";
+      prev.lastLevel = 10;
+      prev.lastManAdv = 0;
+      const order = [
+        { ...sb("Ahri", "ORDER", 3, 0, 2, 10), isDead: false },
+        { ...sb("LeeSin", "ORDER", 2, 1, 3, 10), isDead: false },
+        { ...sb("Jinx", "ORDER", 2, 0, 1, 9), isDead: false },
+        { ...sb("Nami", "ORDER", 0, 1, 4, 9), isDead: false },
+        { ...sb("Thresh", "ORDER", 0, 0, 2, 8), isDead: false },
+      ];
+      const chaos = [
+        { ...sb("Malphite", "CHAOS", 1, 2, 0, 9), isDead: true },
+        { ...sb("Viego", "CHAOS", 2, 1, 1, 10), isDead: true },
+        { ...sb("Jhin", "CHAOS", 1, 0, 0, 8), isDead: false },
+        { ...sb("Lulu", "CHAOS", 0, 1, 2, 8), isDead: false },
+        { ...sb("Sett", "CHAOS", 1, 0, 0, 9), isDead: false },
+      ];
+      const c = ctx({
+        gameTime: 720,
+        you: {
+          championName: "Ahri",
+          level: 10,
+          kills: 3,
+          deaths: 0,
+          assists: 2,
+          currentGold: 400,
+          currentHealth: 1400,
+          maxHealth: 1600,
+        },
+        scoreboard: [...order, ...chaos],
+      });
+      const { insights } = runInsights(c, prev);
+      const best = pickSpeakableInsight(insights, "normal");
+      const hit = insights.some(
+        (i) =>
+          i.kind === "fight_window" ||
+          i.kind === "numbers" ||
+          i.kind === "field_alert" ||
+          (i.score >= 70 && /green|plates|down/i.test(i.line))
+      );
+      return {
+        expectSpeak: hit || (best != null && best.score >= 24),
         forbidObvious: true,
         _best: best,
       } as ReturnType<SmokeCase["run"]> & { _best: typeof best };

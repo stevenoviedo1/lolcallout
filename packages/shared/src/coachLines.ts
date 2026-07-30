@@ -99,8 +99,9 @@ function yourDeaths(a: MatchAnalytics): number {
 
 /**
  * Pick best option; optionally re-rank with coach BRAIN (tempo/structure) — additive.
+ * Rotates among top options when scores are close so the coach doesn't loop one phrase.
  */
-function pickBest(options: PlayOption[], a?: MatchAnalytics): string {
+function pickBest(options: PlayOption[], a?: MatchAnalytics, seed = 0): string {
   let viable = options.filter((o) => o.score > 0 && o.line.trim());
   if (!viable.length) return options[0]?.line || "Play the next high-% decision.";
   if (a) {
@@ -111,7 +112,12 @@ function pickBest(options: PlayOption[], a?: MatchAnalytics): string {
     }
   }
   viable.sort((x, y) => y.score - x.score);
-  return viable[0].line;
+  const top = viable[0].score;
+  const near = viable.filter((o) => o.score >= top - 12).slice(0, 4);
+  if (near.length <= 1) return viable[0].line;
+  // Stable rotation from game clock / seed — different line each window
+  const idx = Math.abs(seed) % near.length;
+  return near[idx].line;
 }
 
 /** Role-specific option weight helpers */
@@ -143,11 +149,15 @@ export function craftCoachLine(
   const manAdv = a.team.alive - a.enemy.alive;
   const resp = estimateRespawn(a);
   const opts: PlayOption[] = [];
+  // Extra can carry "|alt=N" to rotate pick among near-ties
+  const seedMatch = /alt=(\d+)/.exec(extra || "");
+  const seed = seedMatch ? Number(seedMatch[1]) : Math.floor(a.clockSec || a.minute * 60);
 
   const add = (id: string, score: number, line: string) => {
     if (score <= 0 || !line) return;
     opts.push({ id, score, line });
   };
+  const best = () => pickBest(opts, a, seed);
 
   // --- Universal hard filters (still compete as options, not always #1) ---
   if (kind === "death" || a.you.isDead) {
@@ -157,6 +167,13 @@ export function craftCoachLine(
   // LOW HP options: base vs hold vs max-range — depends on gold, mode, role, numbers
   if (kind === "low_hp" || (hp != null && hp < 28 && !a.you.isDead)) {
     if (mode.noRecall) {
+      add(
+        "aram_shop_edge",
+        gold >= 1000 ? 96 : 70,
+        gold >= 1000
+          ? `${c}: ${hp}% + ${gold}g — max range only; shop on death, don't int the gold.`
+          : `${c}: ${hp}% — max range only; stack with two before you commit.`
+      );
       add("aram_max_range", 90, `${c}: ${hp}% — max range only; wait for a reset fight.`);
       add("aram_stack", 70 + (manAdv < 0 ? 15 : 0), `${c}: ${hp}% — stack with two allies; don't poke alone.`);
     } else {
@@ -189,7 +206,7 @@ export function craftCoachLine(
         );
       }
     }
-    return pickBest(opts, a);
+    return best();
   }
 
   // GOLD SIT — base is often right, but not if free plates / man adv / obj
@@ -233,7 +250,7 @@ export function craftCoachLine(
         `${c}: ${gold}g jg — one high-% invade or scuttle, then base; don't sit full.`
       );
     }
-    if (opts.length) return pickBest(opts, a);
+    if (opts.length) return best();
   }
 
   // NUMBERS swing — role changes the convert
@@ -265,13 +282,13 @@ export function craftCoachLine(
           `${c}: allies down — catch nearest safe wave; don't mid 1v2.`
         );
       }
-      return pickBest(opts, a);
+      return best();
     }
     if (a.enemy.dead >= 2) {
       const dead = enemyDown(a);
       if (mode.noRecall) {
         add("aram_plates", 90, `${c}: green light — ${dead} down; shove plates, no fountain.`);
-        return pickBest(opts, a);
+        return best();
       }
       // Competing converts
       add(
@@ -312,7 +329,7 @@ export function craftCoachLine(
           `${c}: ${dead} down + ${gold}g — one shove, then base if obj isn't free.`
         );
       }
-      return pickBest(opts, a);
+      return best();
     }
     if (manAdv > 0) {
       add(
@@ -336,7 +353,7 @@ export function craftCoachLine(
         `${c}: ${a.team.alive}v${a.enemy.alive} even — only if HP and wave favor you.`
       );
     }
-    if (opts.length) return pickBest(opts, a);
+    if (opts.length) return best();
   }
 
   // KILL convert — not always base, not always plate
@@ -367,7 +384,7 @@ export function craftCoachLine(
         `${c}: got the kill but respect ${threat} — no ego follow-up into them.`
       );
     }
-    return pickBest(opts, a);
+    return best();
   }
 
   // OBJECTIVE
@@ -387,7 +404,7 @@ export function craftCoachLine(
     }
     if (isJg) add("jg_smite", 88, `${c}: jg — you call start/no-start; only if smite + man advantage.`);
     if (isSup) add("sup_ward_pit", 86, `${c}: support — ward pit/river, then stack for the call.`);
-    return pickBest(opts, a);
+    return best();
   }
 
   // PRESSURE / WINCON — different answers per role
@@ -424,7 +441,7 @@ export function craftCoachLine(
           `${c}: respect ${threat} — only fight with CC/numbers; subtract first-in.`
         );
       }
-      return pickBest(opts, a);
+      return best();
     }
     if (a.pressure === "winning" || a.winCon === "snowball" || a.winCon === "siege") {
       add(
@@ -435,7 +452,7 @@ export function craftCoachLine(
       if (isJg) add("jg_vision_obj", 90, `${c}: jg ahead — set vision into obj; you create the map.`);
       if (isSup) add("sup_siege", 86, `${c}: support ahead — siege wards and peel; no side quest.`);
       if (isCarry) add("carry_dps", 88, `${c}: ahead — take DPS angles on towers; stay max range.`);
-      return pickBest(opts, a);
+      return best();
     }
     // even / pick / scale / teamfight
     if (a.winCon === "pick") {
@@ -465,7 +482,7 @@ export function craftCoachLine(
       55,
       `${c}: even @ ${a.clockLabel} — crash then move first with allies.`
     );
-    return pickBest(opts, a);
+    return best();
   }
 
   if (kind === "fed_enemy_new" || kind === "shutdown") {
@@ -519,10 +536,28 @@ function craftDeathLine(a: MatchAnalytics, mode: ModeProfile, extra?: string): s
   const threat = threatName(a);
   const gold = a.you.gold;
   const role = a.you.roleHint;
+  const killer = a.yourLastKiller;
   const opts: PlayOption[] = [];
   const add = (id: string, score: number, line: string) => {
     if (score > 0) opts.push({ id, score, line });
   };
+
+  if (killer) {
+    add(
+      "killer_respect",
+      93,
+      `${c}: next spawn respect ${killer} — different entry, not the same path.`
+    );
+    if (threat && threat === killer) {
+      add(
+        "killer_fed",
+        96,
+        role === "SUPPORT"
+          ? `${c}: ${killer} deletes you — peel from behind next fight, never first in.`
+          : `${c}: ${killer} is the problem — secondary engage only; no first-in.`
+      );
+    }
+  }
 
   if (a.riskFlags.includes("gold_in_pocket") || gold >= 1200) {
     add(
@@ -571,7 +606,7 @@ function craftDeathLine(a: MatchAnalytics, mode: ModeProfile, extra?: string): s
       ? `${c}: next spawn — shop if gold, two allies, then poke.`
       : `${c}: next spawn — buy if needed, nearest wave; rejoin only with info.`
   );
-  return pickBest(opts, a);
+  return pickBest(opts, a, Math.floor(a.clockSec || 0));
 }
 
 function craftMatchStart(a: MatchAnalytics, mode: ModeProfile): string {

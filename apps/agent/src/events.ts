@@ -126,7 +126,7 @@ export class EventDetector {
         }
       }
 
-      // Numbers swing
+      // Numbers swing — fire on 1+ death swings mid/late, or 2+ anytime
       const team = teamOfYou(next);
       const allies = next.scoreboard.filter((p) => p.team === team && team !== "UNKNOWN");
       const enemies = next.scoreboard.filter(
@@ -134,15 +134,19 @@ export class EventDetector {
       );
       const allyDead = allies.filter((p) => p.isDead).length;
       const enemyDead = enemies.filter((p) => p.isDead).length;
-      if (
-        (allyDead >= 2 && allyDead > this.lastAllyDead) ||
-        (enemyDead >= 2 && enemyDead > this.lastEnemyDead)
-      ) {
+      const allyNames = allies.filter((p) => p.isDead).map((p) => p.championName);
+      const enemyNames = enemies.filter((p) => p.isDead).map((p) => p.championName);
+      const midOrLate = next.gameTime >= 8 * 60;
+      const allySwing = allyDead > this.lastAllyDead && (allyDead >= 2 || (midOrLate && allyDead >= 1));
+      const enemySwing =
+        enemyDead > this.lastEnemyDead && (enemyDead >= 2 || (midOrLate && enemyDead >= 1));
+      if (allySwing || enemySwing) {
         const brief = buildSituationBrief(next, "numbers", {
-          extra: `alliesDead=${allyDead} enemiesDead=${enemyDead}`,
+          extra: `alliesDead=${allyDead} (${allyNames.join(",")}) enemiesDead=${enemyDead} (${enemyNames.join(",")})`,
         });
+        // Prefer combat convert/hold if present in fallback from field
         const s = this.tryEmit("numbers", "warn", next, {
-          title: "Numbers",
+          title: enemySwing && enemyDead >= allyDead ? "Convert" : "Hold",
           detail: brief.fallback,
           coachPrompt: `${brief.instruction}\n\n${brief.text}\n\nFALLBACK: ${brief.fallback}`,
           spokenFallback: brief.fallback,

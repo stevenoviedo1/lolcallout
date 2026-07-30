@@ -40,6 +40,7 @@ export function normalizeAllGameData(
     items: Array.isArray(p.items)
       ? p.items.map((i: any) => i?.displayName).filter(Boolean)
       : [],
+    laneRole: extractLaneRole(p),
   }));
 
   // Live Client often omits championName on activePlayer (Riot client change).
@@ -84,6 +85,10 @@ export function normalizeAllGameData(
     if (items.length) you.items = items;
     const spells = extractSpells(active);
     if (spells.length) you.summonerSpells = spells;
+    const abilities = extractAbilityLevels(active);
+    if (abilities) you.abilityLevels = abilities;
+    const lane = extractLaneRole(match) || extractLaneRole(active);
+    if (lane) you.laneRole = lane;
   }
 
   const eventsRaw: any[] = data?.events?.Events ?? data?.events ?? [];
@@ -154,6 +159,7 @@ function findLocalPlayer(
 }
 
 function playerToYou(p: any, active: any): ActiveYou {
+  const abilityLevels = extractAbilityLevels(active);
   return {
     championName: resolveChampionLabel(p.championName ?? p.rawChampionName ?? "Unknown"),
     level: Number(p.level ?? active?.level ?? 1),
@@ -169,7 +175,38 @@ function playerToYou(p: any, active: any): ActiveYou {
     items: Array.isArray(p.items)
       ? p.items.map((i: any) => i?.displayName).filter(Boolean)
       : [],
+    laneRole: extractLaneRole(p) || extractLaneRole(active),
+    abilityLevels: abilityLevels || undefined,
   };
+}
+
+/** Live Client role/lane (TOP, MIDDLE, …) — not map coordinates */
+function extractLaneRole(p: any): string | undefined {
+  if (!p) return undefined;
+  const raw = p.position ?? p.rawPosition ?? p.role ?? p.assignedPosition;
+  if (raw == null || raw === "") return undefined;
+  const s = String(raw).trim();
+  if (!s || s === "NONE" || s === "UNKNOWN") return undefined;
+  // Ignore pure coordinate objects if ever present
+  if (typeof raw === "object") return undefined;
+  return s;
+}
+
+/** Your Q/W/E/R ranks from activePlayer.abilities (enemy CDs never available) */
+function extractAbilityLevels(
+  active: any
+): { Q?: number; W?: number; E?: number; R?: number } | null {
+  const ab = active?.abilities;
+  if (!ab || typeof ab !== "object") return null;
+  const out: { Q?: number; W?: number; E?: number; R?: number } = {};
+  for (const key of ["Q", "W", "E", "R"] as const) {
+    const slot = ab[key] ?? ab[key.toLowerCase()];
+    if (slot && slot.abilityLevel != null) {
+      const n = Number(slot.abilityLevel);
+      if (Number.isFinite(n)) out[key] = n;
+    }
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 function mapMode(m: unknown, mapName: string): GameMode {

@@ -7,6 +7,8 @@ import type { ActiveYou, GameContext, GameMode, PlayerScoreline } from "./index.
 import { phaseForTime } from "./deaths.js";
 import { isAramMode, isArenaMode, isNoRecallMode } from "./coachBrief.js";
 import { nextCoachAction } from "./coachLines.js";
+import { buildCombatIntel, type FightLight } from "./combatIntel.js";
+import { readBattle, type BattlePhase, type BattleJob } from "./battleReader.js";
 
 export type MacroPhase = "early" | "mid" | "late";
 export type Pressure = "winning" | "even" | "losing";
@@ -76,6 +78,26 @@ export interface MatchAnalytics {
   insights: string[];
   winCon: WinCon;
   riskFlags: string[];
+
+  /** Combat layer (legal events + scoreboard) */
+  fightLight: FightLight;
+  fightReason: string;
+  manAdvantage: number;
+  enemiesUltUnlockedAlive: string[];
+  yourLastKiller: string | null;
+  enemyRespawnEstSec: number | null;
+  convertHint: string | null;
+  holdHint: string | null;
+
+  /** Live battle read */
+  battlePhase: BattlePhase;
+  battleHeat: number;
+  battleJob: BattleJob;
+  battleLine: string | null;
+  battleFocus: string | null;
+  battleThreat: string | null;
+  battleCommit: boolean;
+  battleDisengage: boolean;
 }
 
 function fmtClock(sec: number): string {
@@ -248,6 +270,30 @@ export function computeMatchAnalytics(ctx: GameContext): MatchAnalytics | null {
   if (fed(enemyList).length) riskFlags.push("fed_enemy");
   if (team.dead >= 3) riskFlags.push("team_bleeding");
 
+  const combat = buildCombatIntel(ctx);
+  const battle = readBattle(ctx);
+  const manAdvantage = combat?.field?.manAdvantage ?? team.alive - enemy.alive;
+  const enemiesUltUnlockedAlive = combat?.field?.enemiesUltUnlockedAlive ?? [];
+  if (combat?.fightLight === "red") riskFlags.push("fight_red");
+  if (combat?.fightLight === "green") riskFlags.push("fight_green");
+  if (enemiesUltUnlockedAlive.length >= 3) riskFlags.push("many_ults_unlocked");
+  if (battle && battle.heat >= 50) riskFlags.push("battle_hot");
+  if (battle?.disengage) riskFlags.push("battle_disengage");
+  if (battle?.commit) riskFlags.push("battle_commit");
+
+  if (combat?.fightReason) insights.push(`Fight light ${combat.fightLight}: ${combat.fightReason}`);
+  if (enemiesUltUnlockedAlive.length) {
+    insights.push(
+      `Enemy ults unlocked (L6+, not CDs): ${enemiesUltUnlockedAlive.slice(0, 4).join(", ")}.`
+    );
+  }
+  if (combat?.yourLastKiller) insights.push(`Last killer on you: ${combat.yourLastKiller}.`);
+  if (battle && battle.phase !== "idle") {
+    insights.push(
+      `Battle ${battle.phase} heat ${battle.heat}: job=${battle.yourJob}${battle.focusTarget ? ` focus=${battle.focusTarget}` : ""}${battle.primaryThreat ? ` threat=${battle.primaryThreat}` : ""}.`
+    );
+  }
+
   return {
     mode: ctx.gameMode,
     aram,
@@ -285,6 +331,22 @@ export function computeMatchAnalytics(ctx: GameContext): MatchAnalytics | null {
     insights,
     winCon,
     riskFlags,
+    fightLight: combat?.fightLight ?? "yellow",
+    fightReason: combat?.fightReason ?? "even",
+    manAdvantage,
+    enemiesUltUnlockedAlive,
+    yourLastKiller: combat?.yourLastKiller ?? null,
+    enemyRespawnEstSec: combat?.enemyRespawnEstSec ?? null,
+    convertHint: combat?.convertLine ?? null,
+    holdHint: combat?.holdLine ?? null,
+    battlePhase: battle?.phase ?? "idle",
+    battleHeat: battle?.heat ?? 0,
+    battleJob: battle?.yourJob ?? "wait",
+    battleLine: battle?.callout ?? null,
+    battleFocus: battle?.focusTarget ?? null,
+    battleThreat: battle?.primaryThreat ?? null,
+    battleCommit: Boolean(battle?.commit),
+    battleDisengage: Boolean(battle?.disengage),
   };
 }
 
@@ -293,10 +355,22 @@ export function formatAnalyticsForAi(a: MatchAnalytics): string {
   return [
     `ANALYTICS @ ${a.clockLabel} (${a.phase}) mode=${a.mode}${a.aram ? " ARAM" : ""}`,
     `PRESSURE: ${a.pressure} (${Math.round(a.pressureScore)}) killLead=${a.killLead} levelLead=${a.levelLead.toFixed(1)}`,
+    `FIGHT_LIGHT: ${a.fightLight.toUpperCase()} (${a.fightReason}) man=${a.manAdvantage >= 0 ? "+" : ""}${a.manAdvantage}`,
+    `BATTLE: phase=${a.battlePhase} heat=${a.battleHeat} job=${a.battleJob} commit=${a.battleCommit} disengage=${a.battleDisengage}`,
+    a.battleLine ? `BATTLE_LINE: ${a.battleLine}` : "",
+    a.battleFocus ? `BATTLE_FOCUS: ${a.battleFocus}` : "",
+    a.battleThreat ? `BATTLE_THREAT: ${a.battleThreat}` : "",
     `YOU: ${a.you.champ} ${a.you.roleHint} L${a.you.level} ${a.you.kda} CS${a.you.cs} (${a.you.cspm.toFixed(1)}/m) gold=${a.you.gold} HP=${a.you.hpPct != null ? Math.round(a.you.hpPct) + "%" : "?"}`,
     a.you.powerSpike ? `SPIKE: ${a.you.powerSpike}` : "",
-    `TEAM: ${a.team.kills}/${a.team.deaths} alive=${a.team.alive} dead=${a.team.dead}`,
-    `ENEMY: ${a.enemy.kills}/${a.enemy.deaths} alive=${a.enemy.alive} dead=${a.enemy.dead}`,
+    `TEAM: ${a.team.kills}/${a.team.deaths} alive=${a.team.alive} dead=${a.team.dead} namesDead=${a.allyDeadNames.join(",") || "none"}`,
+    `ENEMY: ${a.enemy.kills}/${a.enemy.deaths} alive=${a.enemy.alive} dead=${a.enemy.dead} namesDead=${a.enemyDeadNames.join(",") || "none"}`,
+    a.enemiesUltUnlockedAlive.length
+      ? `ENEMY_ULT_UNLOCKED_ALIVE: ${a.enemiesUltUnlockedAlive.join(", ")} (level≥6, NOT cooldowns)`
+      : "ENEMY_ULT_UNLOCKED_ALIVE: none",
+    a.yourLastKiller ? `YOUR_LAST_KILLER: ${a.yourLastKiller}` : "",
+    a.enemyRespawnEstSec != null ? `ENEMY_RESPAWN_EST: ~${a.enemyRespawnEstSec}s` : "",
+    a.convertHint ? `CONVERT_HINT: ${a.convertHint}` : "",
+    a.holdHint ? `HOLD_HINT: ${a.holdHint}` : "",
     a.fedEnemies.length ? `FED_ENEMY: ${a.fedEnemies.join(", ")}` : "FED_ENEMY: none",
     a.fedAllies.length ? `FED_ALLY: ${a.fedAllies.join(", ")}` : "",
     a.objectiveWindows.length ? `OBJ_WINDOWS: ${a.objectiveWindows.join("; ")}` : "",
@@ -311,13 +385,22 @@ export function formatAnalyticsForAi(a: MatchAnalytics): string {
 
 /** Strategy line for the next 20–40s from analytics alone. */
 export function strategyNextAction(a: MatchAnalytics): string {
+  // Mid-fight job beats generic convert when battle is hot
+  if (a.battleLine && (a.battleHeat >= 35 || a.battlePhase !== "idle")) {
+    return a.battleLine;
+  }
+  // Prefer combat-layer hints when present
+  if (a.you.isDead && a.holdHint) return a.holdHint;
+  if (a.fightLight === "green" && a.convertHint) return a.convertHint;
+  if (a.fightLight === "red" && a.holdHint) return a.holdHint;
+
   const kind = a.you.isDead
     ? "death"
     : a.riskFlags.includes("critical_hp")
       ? "low_hp"
       : a.riskFlags.includes("gold_in_pocket") && !a.noRecall
         ? "base"
-        : a.team.dead >= 2 || a.enemy.dead >= 2
+        : a.team.dead >= 2 || a.enemy.dead >= 2 || Math.abs(a.manAdvantage) >= 2
           ? "numbers"
           : "wincon_change";
   return nextCoachAction(a, kind);
