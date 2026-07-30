@@ -322,15 +322,11 @@ export async function* streamCoachReply(
       process.env.XAI_PROMPT_CACHE_KEY || "lolcallout-coach-v2";
   }
 
-  const stream = (await openai.chat.completions.create(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    createParams as any
-  )) as AsyncIterable<{
-    choices?: { delta?: { content?: string | null } }[];
-  }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stream: any = await openai.chat.completions.create(createParams as any);
 
   for await (const chunk of stream) {
-    const delta = chunk.choices?.[0]?.delta?.content;
+    const delta = chunk?.choices?.[0]?.delta?.content;
     if (delta) yield delta;
   }
 }
