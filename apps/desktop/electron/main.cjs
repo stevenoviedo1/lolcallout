@@ -621,6 +621,12 @@ app.on("open-url", (event, url) => {
 });
 
 app.whenReady().then(async () => {
+  const bootT0 = Date.now();
+  const mark = (label) => {
+    console.log(`[boot +${Date.now() - bootT0}ms] ${label}`);
+  };
+  mark("app ready");
+
   ipcMain.handle("app:getVersion", () => app.getVersion());
   ipcMain.handle("app:openExternal", (_e, url) => {
     if (typeof url === "string" && /^https?:\/\//i.test(url)) {
@@ -637,8 +643,11 @@ app.whenReady().then(async () => {
   });
 
   try {
-    await startBackend();
-    await createWindow();
+    // Show UI first — backends in parallel (faster perceived launch)
+    const winP = createWindow().then(() => mark("window+UI ready"));
+    const backP = startBackend().then(() => mark("backend (agent) ready"));
+    await Promise.all([winP, backP]);
+    mark("boot complete");
   } catch (e) {
     console.error("[boot] failed", e);
     dialog.showErrorBox(

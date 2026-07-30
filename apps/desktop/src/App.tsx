@@ -19,7 +19,13 @@ import { hpPct, modeFullLabel, modeLabel } from "./lib/modeLabel";
 import { changePassword, isStrongPassword } from "./lib/authApi";
 import { resetCoachVoice, setLayoutPersisted, useAppStore } from "./stores/useAppStore";
 
-export default function App() {
+export default function App({
+  membershipActive = true,
+  onUpgrade,
+}: {
+  membershipActive?: boolean;
+  onUpgrade?: () => void;
+} = {}) {
   const {
     nav,
     setNav,
@@ -391,10 +397,20 @@ export default function App() {
                 className="chip chip-primary"
                 style={{ marginLeft: "auto", flexShrink: 0 }}
                 disabled={streaming}
-                title="Get a coaching line right now"
-                onClick={() => void sendChip("what_now", "What now?")}
+                title={
+                  membershipActive
+                    ? "Get a coaching line right now"
+                    : "Membership required for AI coach"
+                }
+                onClick={() => {
+                  if (!membershipActive) {
+                    onUpgrade?.();
+                    return;
+                  }
+                  void sendChip("what_now", "What now?");
+                }}
               >
-                Coach me
+                {membershipActive ? "Coach me" : "Unlock AI"}
               </button>
             </>
           ) : (

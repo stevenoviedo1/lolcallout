@@ -65,6 +65,7 @@ import {
   sessionExists,
   streamCallout,
   streamChat,
+  MembershipRequiredError,
 } from "../lib/api";
 import {
   DEFAULT_COST_SAVER,
@@ -138,6 +139,10 @@ interface AppState {
   toast: string | null;
   error: string | null;
   wasInGame: boolean;
+  /** Paid membership (Founders/Pro) — required for cloud AI coach */
+  membershipActive: boolean;
+  membershipEmail: string | null;
+  setMembership: (opts: { active: boolean; email?: string | null }) => void;
   init: () => Promise<void>;
   pollAgent: () => Promise<void>;
   sendMessage: (
@@ -632,6 +637,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   toast: null,
   error: null,
   wasInGame: false,
+  membershipActive: false,
+  membershipEmail: null,
+  setMembership: ({ active, email }) => {
+    set({
+      membershipActive: Boolean(active),
+      membershipEmail: email ?? get().membershipEmail,
+    });
+  },
   costSaver: { ...DEFAULT_COST_SAVER },
   setUrgentVoiceOnly: (urgentVoiceOnly) => {
     const costSaver = { ...get().costSaver, urgentVoiceOnly };
@@ -1274,7 +1287,8 @@ export const useAppStore = create<AppState>((set, get) => ({
               }
               releaseBusy();
 
-              if (useAi && spoke) {
+              // Cloud AI callouts require paid membership (server also enforces 402)
+              if (useAi && spoke && get().membershipActive) {
                 aiCalloutsThisGame += 1;
                 const enriched: DetectedSignal = {
                   ...signal,
@@ -1318,10 +1332,18 @@ export const useAppStore = create<AppState>((set, get) => ({
                     ) {
                       paint(line, "ai");
                     }
-                  } catch {
-                    /* local already spoken */
+                  } catch (e) {
+                    if (e instanceof MembershipRequiredError) {
+                      set({
+                        toast:
+                          "Membership required for AI callouts — upgrade on lolcallout.com",
+                      });
+                    }
+                    // keep local fallback line
                   }
                 })();
+              } else if (useAi && spoke && !get().membershipActive) {
+                // free tier: local coach only, no cloud AI upgrade
               }
             }
           }
@@ -1339,6 +1361,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   sendMessage: async (text, intent, withVision, frame) => {
     const trimmed = text.trim();
     if (!trimmed || get().streaming) return;
+
+    if (!get().membershipActive) {
+      set({
+        error:
+          "AI coach needs a membership. Buy Founders/Pro on lolcallout.com with this email, then sign in again.",
+        toast: "Membership required for AI coaching",
+      });
+      return;
+    }
 
     let sessionId: string;
     try {
@@ -1430,6 +1461,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       let full = await runChat(sessionId);
       if (shouldVoiceReply) speakIfEnabled(full, "reply");
     } catch (e) {
+      if (e instanceof MembershipRequiredError) {
+        set({
+          membershipActive: false,
+          streaming: false,
+          error: e.message,
+          toast: "Membership required — upgrade at lolcallout.com",
+        });
+        return;
+      }
       const msg = e instanceof Error ? e.message : "Chat failed";
       // Auto-recover stale session once (API restart / prune)
       if (/session not found/i.test(msg)) {
@@ -1498,7 +1538,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().streaming) return;
     try {
       stopSpeaking();
-      set({ streaming: true, toast: "Writing post-game summary…" });
+      set({
+        streaming: true,
+        toast: get().membershipActive
+          ? "Writing post-game summary…"
+          : "Saving post-game report…",
+      });
       // Prefer last live context; don't send mock
       const ctx = get().context;
       const safeCtx =
@@ -1528,8 +1573,23 @@ export const useAppStore = create<AppState>((set, get) => ({
         /* grade optional */
       }
 
-      const { summary } = await endSession(sessionId, safeCtx, result);
-      const raw = summary.raw || summary.bullets.join(". ");
+      // AI post-game summary requires membership; free users still get local memory report
+      let raw = "";
+      let summary: SessionSummary | null = null;
+      if (get().membershipActive) {
+        try {
+          const ended = await endSession(sessionId, safeCtx, result);
+          summary = ended.summary;
+          raw = summary.raw || summary.bullets.join(". ");
+        } catch (e) {
+          if (e instanceof MembershipRequiredError) {
+            set({ membershipActive: false });
+            raw = "";
+          } else {
+            throw e;
+          }
+        }
+      }
       const lo =
         sessionLearningObjective ||
         loadBlockLearningObjective() ||
@@ -1584,7 +1644,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? `\n\nGRADE ${grade.letter} (${grade.score}/100) · ${grade.modeLabel || ""}\n${grade.scaleNote || ""}\n${grade.goals.map((g) => `${g.passed ? "✓" : "✗"} ${g.detail}`).join("\n")}\nHabits: ${grade.habits.join(" · ")}\n\n${loCard}`
         : `\n\n${loCard}`;
       const fullContent = reportText
-        ? `${reportText}\n\n---\nAI summary:\n${raw}${gradeLine}`
+        ? raw
+          ? `${reportText}\n\n---\nAI summary:\n${raw}${gradeLine}`
+          : `${reportText}${gradeLine}`
         : raw + gradeLine;
       set((s) => ({
         activeSummary: summary,
@@ -1592,12 +1654,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         lastPostGame: postGame,
         nextQueueLo: loCard,
         coachSilence: null,
+        streaming: false,
         messages: [
           ...s.messages,
           {
             id: `sum-${Date.now()}`,
             role: "system",
-            content: fullContent,
+            content: fullContent || "Match ended.",
             createdAt: new Date().toISOString(),
             meta: {
               kind: "summary",
@@ -1609,15 +1672,18 @@ export const useAppStore = create<AppState>((set, get) => ({
         ],
         toast: grade
           ? `Game over — Grade ${grade.letter}`
-          : "Summary ready — callouts stopped until next match",
+          : "Match ended — callouts paused until next game",
       }));
-      speakIfEnabled(
-        postGame?.speakable ||
-          (grade
-            ? `Grade ${grade.letter}. ${grade.habits[0] || ""}. Next game: ${nextLo}`
-            : `Next game focus: ${nextLo}`),
-        "reply"
-      );
+      // Voice only if paid cloud TTS / local voice still ok for postGame speakable
+      if (get().membershipActive || postGame?.speakable) {
+        speakIfEnabled(
+          postGame?.speakable ||
+            (grade
+              ? `Grade ${grade.letter}. ${grade.habits[0] || ""}. Next game: ${nextLo}`
+              : `Next game focus: ${nextLo}`),
+          "reply"
+        );
+      }
       void get().loadHistory();
       // Fresh shell for next game (won't appear in history until a real match)
       const next = await createSession();

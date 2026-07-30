@@ -16,9 +16,11 @@ New-Item -ItemType Directory -Path "$pack\server\api" -Force | Out-Null
 New-Item -ItemType Directory -Path "$pack\server\agent" -Force | Out-Null
 New-Item -ItemType Directory -Path "$pack\ui" -Force | Out-Null
 
-Write-Host "==> Copying server bundles" -ForegroundColor Cyan
+Write-Host "==> Copying server bundles (js only — strip maps/types for faster install)" -ForegroundColor Cyan
 Copy-Item "$root\apps\api\dist\*" "$pack\server\api\" -Recurse -Force
 Copy-Item "$root\apps\agent\dist\*" "$pack\server\agent\" -Recurse -Force
+# Drop .map / .d.ts from our dist — they bloat file count for Defender + NSIS
+Get-ChildItem -Path "$pack\server\api","$pack\server\agent" -Recurse -Include *.map,*.d.ts,*.d.ts.map -ErrorAction SilentlyContinue | Remove-Item -Force
 
 $serverPkg = @'
 {
@@ -61,6 +63,14 @@ function Copy-RiftcoachWorkspacePkg([string]$name) {
 Write-Host "==> Bundling @riftcoach/shared + prompts into server node_modules" -ForegroundColor Cyan
 Copy-RiftcoachWorkspacePkg "shared"
 Copy-RiftcoachWorkspacePkg "prompts"
+# Strip maps/types from workspace packages + prune maps in node_modules (install speed)
+Write-Host "==> Pruning .map / .d.ts from server (fewer files = faster install)" -ForegroundColor Cyan
+Get-ChildItem -Path "$pack\server" -Recurse -Include *.map,*.d.ts,*.d.ts.map -ErrorAction SilentlyContinue |
+  Where-Object { $_.FullName -notmatch '\\node_modules\\[^\\]+\\package\.json' } |
+  Remove-Item -Force -ErrorAction SilentlyContinue
+# Keep runtime .js; remove TypeScript declaration trees if any
+Get-ChildItem -Path "$pack\server\node_modules\@riftcoach" -Recurse -Include *.map,*.d.ts -ErrorAction SilentlyContinue |
+  Remove-Item -Force -ErrorAction SilentlyContinue
 
 Copy-Item "$root\apps\desktop\dist\*" "$pack\ui\" -Recurse -Force
 # Single brand mark — same as lolcallout.com

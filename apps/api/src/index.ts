@@ -37,7 +37,13 @@ import {
   stripeEnabled,
   // handleStripeWebhook loaded dynamically in raw route
 } from "./stripe.js";
-import { authMiddleware, registerAuthRoutes, type AuthedRequest } from "./authRoutes.js";
+import {
+  authMiddleware,
+  registerAuthRoutes,
+  requireAccess,
+  requireAuth,
+  type AuthedRequest,
+} from "./authRoutes.js";
 import {
   bootstrapPaidEmails,
   countFoundersSeatsTaken,
@@ -322,8 +328,8 @@ app.get("/v1/tts/status", (_req, res) => {
   res.json(ttsStatus());
 });
 
-/** Cloud TTS — natural xAI voices or your cloned ElevenLabs voice */
-app.post("/v1/tts", async (req, res) => {
+/** Cloud TTS — paid members only (natural xAI / ElevenLabs) */
+app.post("/v1/tts", requireAuth, requireAccess, async (req, res) => {
   try {
     const text = String(req.body?.text || "");
     const provider = req.body?.provider as TtsProvider | undefined;
@@ -461,13 +467,13 @@ async function streamChatHandler(
   }
 }
 
-/** SSE streaming chat */
-app.post("/v1/sessions/:id/chat", async (req, res) => {
+/** SSE streaming chat — paid members only */
+app.post("/v1/sessions/:id/chat", requireAuth, requireAccess, async (req, res) => {
   await streamChatHandler(req.params.id, (req.body || {}) as ChatRequest, res);
 });
 
-/** Proactive callout from agent signal */
-app.post("/v1/sessions/:id/callout", async (req, res) => {
+/** Proactive callout from agent signal — paid members only */
+app.post("/v1/sessions/:id/callout", requireAuth, requireAccess, async (req, res) => {
   const body = (req.body || {}) as CalloutRequest;
   if (!body.signal) return res.status(400).json({ error: "signal required" });
 
@@ -500,8 +506,8 @@ app.post("/v1/sessions/:id/callout", async (req, res) => {
   });
 });
 
-/** End match + generate summary */
-app.post("/v1/sessions/:id/end", async (req, res) => {
+/** End match + generate AI summary — paid members only */
+app.post("/v1/sessions/:id/end", requireAuth, requireAccess, async (req, res) => {
   const rec = getSession(req.params.id);
   if (!rec) return res.status(404).json({ error: "session not found" });
 

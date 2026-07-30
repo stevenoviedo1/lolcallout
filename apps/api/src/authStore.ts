@@ -279,18 +279,24 @@ export function getUserByStripeCustomerId(customerId: string): User | undefined 
   return users.find((u) => u.stripeCustomerId === customerId);
 }
 
+/**
+ * True only for paid membership (Founders / Pro with live access).
+ * Free accounts can sign in but must NOT unlock AI coach.
+ *
+ * Override for local engineering only: AUTH_ALLOW_FREE_COACH=1
+ */
 export function userHasAccess(user: User | undefined): boolean {
   if (!user) return false;
-  // Dev open mode when no AUTH_REQUIRE_PAID
-  if (process.env.AUTH_REQUIRE_PAID !== "1" && process.env.NODE_ENV !== "production") {
-    // Still respect plan if set, but free users allowed in dev
-    if (user.plan === "free" && !user.accessUntil) return true;
+  // Explicit eng bypass — never set this on Railway/production
+  if (process.env.AUTH_ALLOW_FREE_COACH === "1") return true;
+
+  const now = Date.now();
+  if (user.accessUntil) {
+    return new Date(user.accessUntil).getTime() > now;
   }
-  if (user.plan === "free" && !user.accessUntil) {
-    return process.env.AUTH_REQUIRE_PAID !== "1";
-  }
-  if (!user.accessUntil) return user.plan === "pro" || user.plan === "founders";
-  return new Date(user.accessUntil).getTime() > Date.now();
+  // Legacy: plan without accessUntil still treated as active if pro/founders
+  if (user.plan === "pro" || user.plan === "founders") return true;
+  return false;
 }
 
 /** Count paid founders seats (active founders plan with future access) */

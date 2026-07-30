@@ -80,13 +80,39 @@ export async function fetchSessionDetail(id: string): Promise<{
   return res.json();
 }
 
+export class MembershipRequiredError extends Error {
+  code = "MEMBERSHIP_REQUIRED" as const;
+  upgradeUrl: string;
+  constructor(message: string, upgradeUrl?: string) {
+    super(message);
+    this.name = "MembershipRequiredError";
+    this.upgradeUrl = upgradeUrl || "https://lolcallout.com/#founders";
+  }
+}
+
 async function readSseStream(
   res: Response,
   onToken: (t: string) => void
 ): Promise<string> {
   if (!res.ok || !res.body) {
-    const err = await res.text();
-    throw new Error(err || `Request failed ${res.status}`);
+    let errText = "";
+    let parsed: { error?: string; code?: string; upgradeUrl?: string } = {};
+    try {
+      errText = await res.text();
+      parsed = JSON.parse(errText) as typeof parsed;
+    } catch {
+      /* plain text */
+    }
+    if (res.status === 402 || parsed.code === "MEMBERSHIP_REQUIRED") {
+      throw new MembershipRequiredError(
+        parsed.error || "Membership required for AI coaching",
+        parsed.upgradeUrl
+      );
+    }
+    if (res.status === 401) {
+      throw new Error("Sign in required for AI coaching");
+    }
+    throw new Error(parsed.error || errText || `Request failed ${res.status}`);
   }
 
   const reader = res.body.getReader();

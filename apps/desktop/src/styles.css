@@ -202,6 +202,25 @@ button {
   border: 1px solid rgba(52, 211, 153, 0.28);
 }
 
+.membership-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.75rem;
+  padding: 0.55rem 0.9rem;
+  background: linear-gradient(90deg, rgba(232, 168, 56, 0.14), rgba(56, 120, 255, 0.08));
+  border-bottom: 1px solid rgba(232, 168, 56, 0.35);
+  font-size: 0.86rem;
+  line-height: 1.35;
+  color: var(--text, #e8ecf4);
+}
+.membership-banner strong {
+  color: #f0c674;
+}
+.membership-banner .chip {
+  margin-left: 0.15rem;
+}
+
 .plan-pill.free {
   color: var(--faint);
   font-weight: 500;

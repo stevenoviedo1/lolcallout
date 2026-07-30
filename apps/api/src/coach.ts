@@ -351,7 +351,8 @@ export function coachAiStatus() {
       "match_memory",
       "post_game",
     ] as const,
-    appDesktopTarget: "0.5.7",
+    appDesktopTarget: "0.5.8",
+    membershipRequiredForAi: true,
   };
 }
 

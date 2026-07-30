@@ -611,13 +611,27 @@
             banner.hidden = false;
             banner.className = "checkout-banner checkout-banner-ok";
             banner.innerHTML =
-              "<strong>You're in.</strong> Download the app, sign in with the same email, and queue.";
+              "<strong>You're in.</strong> Membership is tied to this email. Open the LOLCallout app, sign in with the <em>same email</em>, then tap <strong>Refresh plan</strong> if AI still says free. AI coach unlocks only for paid seats.";
             if (sessionId) {
               fetch(apiBase + "/v1/billing/confirm", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ sessionId }),
-              }).catch(function () {});
+              })
+                .then(function (r) {
+                  return r.json().catch(function () {
+                    return {};
+                  });
+                })
+                .then(function (data) {
+                  if (data && data.user && data.user.hasAccess) {
+                    banner.innerHTML =
+                      "<strong>Membership active for " +
+                      (data.user.email || "your email") +
+                      ".</strong> Open the desktop app → sign in with that email → AI coach is unlocked. If the app still says free, click <strong>Refresh plan</strong>.";
+                  }
+                })
+                .catch(function () {});
             }
             try {
               history.replaceState({}, "", "/#founders");

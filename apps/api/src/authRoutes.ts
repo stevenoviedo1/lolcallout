@@ -84,16 +84,29 @@ export function requireAuth(req: AuthedRequest, res: Response, next: NextFunctio
   next();
 }
 
+/**
+ * Paid membership required (AI coach, cloud TTS, premium summaries).
+ * Free users may still sign in and use the app shell / Live Client readouts.
+ */
 export function requireAccess(req: AuthedRequest, res: Response, next: NextFunction) {
   if (!req.user) {
-    res.status(401).json({ error: "Sign in required" });
+    res.status(401).json({
+      error: "Sign in required",
+      code: "AUTH_REQUIRED",
+    });
     return;
   }
-  if (process.env.AUTH_REQUIRE_PAID === "1" && !userHasAccess(req.user)) {
+  if (!userHasAccess(req.user)) {
     res.status(402).json({
-      error: "Pro or Founders plan required",
+      error:
+        "Membership required for AI coaching. Buy Founders or Pro on lolcallout.com with this email, then sign in again.",
+      code: "MEMBERSHIP_REQUIRED",
       plan: req.user.plan,
       accessUntil: req.user.accessUntil,
+      hasAccess: false,
+      upgradeUrl: process.env.APP_URL
+        ? `${process.env.APP_URL.replace(/\/$/, "")}/#founders`
+        : "https://lolcallout.com/#founders",
     });
     return;
   }

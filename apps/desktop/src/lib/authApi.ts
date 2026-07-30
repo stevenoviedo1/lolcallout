@@ -276,6 +276,46 @@ export async function changePassword(
   return { ok: false, error: lastError };
 }
 
+/** Open Stripe checkout (Founders or Pro) in the system browser */
+export async function startMembershipCheckout(
+  email: string,
+  founders = true
+): Promise<{ ok: boolean; error?: string }> {
+  const trimmed = email.trim();
+  if (!trimmed) return { ok: false, error: "Email required" };
+  for (const base of authBases()) {
+    if (!allowLocalAuth() && /127\.0\.0\.1|localhost/i.test(base)) continue;
+    try {
+      const res = await fetch(`${base}/v1/billing/checkout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...authHeaders(),
+        },
+        body: JSON.stringify({ email: trimmed, founders }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        url?: string;
+        error?: string;
+      };
+      if (res.ok && data.url) {
+        await openInBrowser(data.url);
+        return { ok: true };
+      }
+      return { ok: false, error: data.error || `Checkout failed (${res.status})` };
+    } catch (e) {
+      /* try next */
+    }
+  }
+  return {
+    ok: false,
+    error: "Could not open checkout. Visit lolcallout.com/#founders in your browser.",
+  };
+}
+
+export const MEMBERSHIP_URL = "https://lolcallout.com/#founders";
+
 export async function openInBrowser(url: string): Promise<void> {
   try {
     const w = window as Window & {
