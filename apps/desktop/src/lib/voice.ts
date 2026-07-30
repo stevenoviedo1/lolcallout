@@ -1,6 +1,6 @@
 /** Voice: browser STT + browser/cloud TTS (xAI natural or your ElevenLabs clone) */
 
-import { toSpeakable } from "@riftcoach/shared";
+import { toSecondPersonCoach, toSpeakable } from "@riftcoach/shared";
 import { API_URL } from "./config";
 import { authHeaders } from "./authApi";
 
@@ -757,9 +757,12 @@ export function speakText(
     volume?: number;
     maxChars?: number;
     prefs?: Partial<VoicePrefs>;
+    /** Your champion — strip "Ahri:" style address so coach talks to you */
+    yourChampion?: string | null;
   }
 ) {
-  const spoken = toSpeakable(text, opts?.maxChars ?? 200);
+  const second = toSecondPersonCoach(text, opts?.yourChampion);
+  const spoken = toSpeakable(second, opts?.maxChars ?? 200, opts?.yourChampion);
   if (!spoken) {
     console.warn("[voice] empty speakable text from", text.slice(0, 80));
     return;

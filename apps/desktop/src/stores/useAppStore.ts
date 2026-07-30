@@ -351,14 +351,32 @@ function isRepeatTip(text: string): boolean {
   return lastSpokenTips.some((prev) => {
     const p = normalizeTip(prev);
     if (p === n) return true;
-    if (p.length > 16 && n.length > 16 && (p.includes(n) || n.includes(p))) return true;
-    const stop = new Set(["with", "from", "then", "that", "this", "your", "have", "down", "alive"]);
+    if (p.length > 14 && n.length > 14 && (p.includes(n) || n.includes(p))) return true;
+    const stop = new Set([
+      "with",
+      "from",
+      "then",
+      "that",
+      "this",
+      "your",
+      "have",
+      "down",
+      "alive",
+      "just",
+      "take",
+      "dont",
+      "don't",
+      "when",
+      "youre",
+      "you're",
+    ]);
     const wa = new Set(n.split(" ").filter((w) => w.length > 3 && !stop.has(w)));
     const wb = p.split(" ").filter((w) => w.length > 3 && !stop.has(w));
-    if (wb.length < 4 || wa.size < 4) return false;
+    if (wb.length < 3 || wa.size < 3) return false;
     let hit = 0;
     for (const w of wb) if (wa.has(w)) hit++;
-    return hit / wb.length >= 0.62 && hit >= 4;
+    // Stricter: 50% content words shared = same robot loop
+    return hit / Math.max(wb.length, 1) >= 0.5 && hit >= 3;
   });
 }
 
@@ -418,13 +436,23 @@ function speakIfEnabled(
   const now = Date.now();
   const urgent = opts?.force || (kind === "callout" && isUrgentKind(calloutKind || ""));
 
-  // Non-urgent: respect lock. Urgent: interrupt previous line.
+  // One coach only: never stack a second line unless truly urgent
   if (!urgent && now < coachVoiceLockedUntil) {
     console.info("[voice] skipped — coach voice still locked", kind, calloutKind);
     return false;
   }
+  // Soft gap even after lock — stops machine-gun tips
+  if (!urgent && kind === "callout" && now - lastSpokenAt < 4_500) {
+    console.info("[voice] skipped — too soon after last tip");
+    return false;
+  }
   if (kind === "callout" && !urgent && isRepeatTip(text)) {
     console.info("[voice] skipped — repeat tip");
+    return false;
+  }
+  // Always block exact/near repeats for replies too
+  if (kind !== "callout" && isRepeatTip(text)) {
+    console.info("[voice] skipped — repeat reply");
     return false;
   }
 
@@ -437,20 +465,22 @@ function speakIfEnabled(
       return false;
     }
     spokenThisGame += 1;
-    lastSpokenTips = [text, ...lastSpokenTips].slice(0, 14);
+    lastSpokenTips = [text, ...lastSpokenTips].slice(0, 18);
     try {
       const gt = useAppStore.getState().context.gameTime || 0;
       matchMemory = rememberSpoken(matchMemory, text, gt);
     } catch {
       /* memory optional */
     }
+  } else {
+    lastSpokenTips = [text, ...lastSpokenTips].slice(0, 18);
   }
 
   // Lock for line duration only — one voice at a time (interrupt replaces prior)
   const words = text.trim().split(/\s+/).length;
   const estMs = urgent
-    ? Math.min(6_200, Math.max(2_000, words * 260 + 700))
-    : Math.min(6_800, Math.max(2_400, words * 280 + 800));
+    ? Math.min(7_000, Math.max(2_200, words * 280 + 800))
+    : Math.min(8_500, Math.max(3_200, words * 300 + 1_000));
   coachVoiceLockedUntil = now + estMs;
   lastSpokenAt = now;
 
@@ -458,6 +488,7 @@ function speakIfEnabled(
   setVoicePrefs(base);
   const isLiveCallout = kind === "callout";
   const broMode = getCoachPersonality() === "hype";
+  const youChamp = st.context?.you?.championName || null;
   // Bro talks longer natural sentences; friend callouts stay snappier
   const maxChars = broMode
     ? isLiveCallout
@@ -473,6 +504,7 @@ function speakIfEnabled(
     volume: clampVoiceVolume(base.volume ?? DEFAULT_VOICE_PREFS.volume),
     maxChars,
     prefs: base,
+    yourChampion: youChamp,
   });
   return true;
 }
@@ -1266,30 +1298,28 @@ export const useAppStore = create<AppState>((set, get) => ({
               };
 
               const releaseBusy = () => {
-                const releaseIn = Math.max(600, Math.min(5_000, coachVoiceLockedUntil - Date.now()));
+                const releaseIn = Math.max(
+                  800,
+                  Math.min(8_000, coachVoiceLockedUntil - Date.now() + 400)
+                );
                 window.setTimeout(() => {
                   calloutBusy = false;
                 }, releaseIn);
               };
 
-              // Always speak local craft line immediately (force if urgent)
-              const spoke = speakIfEnabled(fallback, "callout", signal.kind, {
-                force: isUrgent,
-              });
-              paint(fallback, "local", spoke ? undefined : "speak gate blocked");
-              if (spoke) {
+              const markSig = () => {
                 coachWatch.lastSpokenAt = Date.now();
                 const parts = signal.id.startsWith("insight::")
                   ? signal.id.split("::")
                   : null;
                 const sig = parts && parts[2] ? parts.slice(2).join("::") : signal.kind;
                 coachWatch.lastSignatures = [sig, ...coachWatch.lastSignatures].slice(0, 12);
-              }
-              releaseBusy();
+              };
 
-              // Cloud AI callouts require paid membership (server also enforces 402)
-              if (useAi && spoke && get().membershipActive) {
+              // ONE voice only: either local OR AI (never both). AI preferred when paid.
+              if (useAi && get().membershipActive) {
                 aiCalloutsThisGame += 1;
+                paint("…", "local");
                 const enriched: DetectedSignal = {
                   ...signal,
                   coachPrompt: [
@@ -1299,38 +1329,48 @@ export const useAppStore = create<AppState>((set, get) => ({
                     sessionLearningObjective
                       ? `SESSION LO (sticky): ${sessionLearningObjective}`
                       : "",
-                    `FALLBACK (improve for THIS role+board; ban platitudes): ${fallback}`,
-                    "One speakable sentence ≤18 words. Best option only. Threat/gold/HP/dead + next play.",
+                    `LOCAL_SEED (rewrite in your voice; do NOT copy if DO_NOT_REPEAT): ${fallback}`,
+                    "RULES: Talk TO the player as you. NEVER call them by champion name. One full sentence. New wording vs RECENT. Name enemies/allies ok.",
                   ]
                     .filter(Boolean)
                     .join("\n\n"),
                   spokenFallback: fallback,
                 };
-                // AI upgrades on-screen text only — no second voice
                 void (async () => {
+                  let line = fallback;
+                  let source: "ai" | "local" = "local";
                   try {
                     const sid = await ensureCoachSession();
-                    const full = await streamCallout(sid, enriched, ctx, () => undefined, {
+                    const aiP = streamCallout(sid, enriched, ctx, () => undefined, {
                       personality: getCoachPersonality(),
-                      recentCallouts: lastSpokenTips.slice(0, 8),
+                      recentCallouts: lastSpokenTips.slice(0, 10),
                       matchMemory,
                     });
-                    const trimmed = full
-                      .replace(/^(ACTION|CALLOUT|LIVE|NOTE|CAUSE|FIX|NEXT|VERDICT):\s*/gim, "")
-                      .replace(/\n+/g, " ")
-                      .replace(/\s+/g, " ")
-                      .trim();
-                    let line = trimmed.length >= 6 ? trimmed.slice(0, 200) : "";
-                    if (analytics && line && isObviousLine(line)) {
-                      line = polishLine(line, analytics, modeProfLocal);
-                    }
-                    if (
-                      line.length >= 6 &&
-                      !isRepeatTip(line) &&
-                      !(analytics && isObviousLine(line)) &&
-                      line.toLowerCase() !== fallback.toLowerCase()
-                    ) {
-                      paint(line, "ai");
+                    // Don't leave silence forever — 3.2s then local once
+                    const timed = await Promise.race([
+                      aiP.then((t) => ({ t, timedOut: false as const })),
+                      new Promise<{ t: string; timedOut: true }>((r) =>
+                        window.setTimeout(() => r({ t: "", timedOut: true }), 3_200)
+                      ),
+                    ]);
+                    if (!timed.timedOut && timed.t) {
+                      const trimmed = timed.t
+                        .replace(/^(ACTION|CALLOUT|LIVE|NOTE|CAUSE|FIX|NEXT|VERDICT):\s*/gim, "")
+                        .replace(/\n+/g, " ")
+                        .replace(/\s+/g, " ")
+                        .trim();
+                      let cand = trimmed.length >= 6 ? trimmed.slice(0, 220) : "";
+                      if (analytics && cand && isObviousLine(cand)) {
+                        cand = polishLine(cand, analytics, modeProfLocal);
+                      }
+                      if (
+                        cand.length >= 6 &&
+                        !isRepeatTip(cand) &&
+                        !(analytics && isObviousLine(cand))
+                      ) {
+                        line = flavorLine(cand, personality, Math.floor(ctx.gameTime));
+                        source = "ai";
+                      }
                     }
                   } catch (e) {
                     if (e instanceof MembershipRequiredError) {
@@ -1339,11 +1379,27 @@ export const useAppStore = create<AppState>((set, get) => ({
                           "Membership required for AI callouts — upgrade on lolcallout.com",
                       });
                     }
-                    // keep local fallback line
                   }
+                  // Single speak — never local then AI
+                  if (isRepeatTip(line) && line !== fallback) {
+                    line = fallback;
+                    source = "local";
+                  }
+                  const spoke = speakIfEnabled(line, "callout", signal.kind, {
+                    force: isUrgent,
+                  });
+                  paint(line, source, spoke ? undefined : "speak gate blocked");
+                  if (spoke) markSig();
+                  releaseBusy();
                 })();
-              } else if (useAi && spoke && !get().membershipActive) {
-                // free tier: local coach only, no cloud AI upgrade
+              } else {
+                // Free / no AI: local only, one voice
+                const spoke = speakIfEnabled(fallback, "callout", signal.kind, {
+                  force: isUrgent,
+                });
+                paint(fallback, "local", spoke ? undefined : "speak gate blocked");
+                if (spoke) markSig();
+                releaseBusy();
               }
             }
           }

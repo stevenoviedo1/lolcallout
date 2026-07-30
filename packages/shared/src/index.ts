@@ -271,7 +271,7 @@ export function hpPercent(you: ActiveYou | null | undefined): number | null {
   return (you.currentHealth / you.maxHealth) * 100;
 }
 
-export { toSpeakable } from "./speakable.js";
+export { toSpeakable, toSecondPersonCoach } from "./speakable.js";
 export {
   CHAMPION_BY_ID,
   championNameFromId,

@@ -1,10 +1,45 @@
 /**
  * Normalize coach text so TTS does not read KDA as calendar dates, etc.
  * Optimized for LIVE callouts — prefer the shortest actionable line.
+ * Always talk TO the player (second person) — never address them by champion name.
  */
 
-export function toSpeakable(text: string, maxChars = 200): string {
-  let t = text.replace(/\r/g, "");
+/**
+ * Strip "Ahri:" / "as Ahri" player-address so the coach talks to YOU.
+ * Enemy/ally names in the sentence stay (e.g. "Zed is hunting").
+ */
+export function toSecondPersonCoach(text: string, yourChampion?: string | null): string {
+  let t = (text || "").replace(/\r/g, "").trim();
+  if (!t) return t;
+
+  // Leading "ChampName: tip" robot form
+  t = t.replace(/^[A-Za-z][\w'.]{1,16}:\s*/, "");
+
+  const champ = (yourChampion || "").trim();
+  if (champ && champ.length >= 2) {
+    const re = champ.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // "Ahri, you should…" / "Ahri — leave"
+    t = t.replace(new RegExp(`^${re}\\s*[,:\\-—–]\\s*`, "i"), "");
+    // "as Ahri," "playing Ahri," at start
+    t = t.replace(new RegExp(`^(as|playing)\\s+${re}\\b[,:]?\\s*`, "i"), "");
+    // "You (Ahri) should" → "You should"
+    t = t.replace(new RegExp(`\\(\\s*${re}\\s*\\)`, "gi"), "");
+    // "listen Ahri" / "hey Ahri" mid-line address (keep if part of longer name unlikely)
+    t = t.replace(new RegExp(`\\b(hey|listen|ok|okay)\\s+${re}\\b[,!]\\s*`, "gi"), "$1, ");
+  }
+
+  // Generic leftover "ChampionName: " after first strip
+  t = t.replace(/^[A-Za-z][\w'.]{1,16}:\s*/, "");
+  t = t.replace(/\s+/g, " ").trim();
+  // Capitalize if we stripped a prefix
+  if (t && /^[a-z]/.test(t)) {
+    t = t.charAt(0).toUpperCase() + t.slice(1);
+  }
+  return t;
+}
+
+export function toSpeakable(text: string, maxChars = 200, yourChampion?: string | null): string {
+  let t = toSecondPersonCoach(text.replace(/\r/g, ""), yourChampion);
 
   // Prefer explicit LIVE: line (instant coach)
   const live = t.match(/LIVE:\s*(.+?)(?:\n|$)/i)?.[1]?.trim();
@@ -20,6 +55,8 @@ export function toSpeakable(text: string, maxChars = 200): string {
     // One line only for speed (was fix+next essays)
     t = callout || action || fix || next || cause || t;
   }
+
+  t = toSecondPersonCoach(t, yourChampion);
 
   // Strip labels
   t = t
@@ -43,7 +80,6 @@ export function toSpeakable(text: string, maxChars = 200): string {
     .replace(/\byou are dead\.?\s*/gi, "")
     .replace(/\bdeath detected\.?\s*/gi, "")
     .replace(/\bdeath review\.?\s*/gi, "");
-
   // KDA / scores: 4/1/3 → "4 kills, 1 death, 3 assists"
   t = t.replace(
     /\b(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{1,2})\b/g,
