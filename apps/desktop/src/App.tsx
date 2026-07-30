@@ -71,6 +71,7 @@ export default function App() {
     setUrgentVoiceOnly,
     goals,
     lastGrade,
+    lastPostGame,
     champSelect,
     deathReport,
     requestChampSelectPlan,
@@ -608,9 +609,38 @@ export default function App() {
                 </p>
               </div>
             )}
+            {lastPostGame && (
+              <div className="summary-card postgame-report">
+                <div className="meta">Memory report · {lastPostGame.scoreline}</div>
+                {lastPostGame.habits[0] && (
+                  <p>
+                    <strong>Habit:</strong> {lastPostGame.habits[0].label} x
+                    {lastPostGame.habits[0].count} — {lastPostGame.habits[0].fix}
+                  </p>
+                )}
+                {lastPostGame.strengths[0] && (
+                  <p className="muted">
+                    <strong>Keep:</strong> {lastPostGame.strengths[0]}
+                  </p>
+                )}
+                {lastPostGame.leaks[0] && (
+                  <p className="muted">
+                    <strong>Leak:</strong> {lastPostGame.leaks[0]}
+                  </p>
+                )}
+                <ul>
+                  {lastPostGame.focusAreas.map((f, i) => (
+                    <li key={i}>{f}</li>
+                  ))}
+                </ul>
+                <p style={{ marginBottom: 0 }}>
+                  <strong>{lastPostGame.loCard}</strong>
+                </p>
+              </div>
+            )}
             {activeSummary && (
               <div className="summary-card">
-                <div className="meta">Post-game</div>
+                <div className="meta">AI post-game</div>
                 {activeSummary.scoreline && <strong>{activeSummary.scoreline}</strong>}
                 <ul>
                   {activeSummary.focusAreas.map((f, i) => (

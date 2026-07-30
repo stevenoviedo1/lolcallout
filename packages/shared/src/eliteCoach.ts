@@ -20,6 +20,7 @@ import { makeShotcall, polishShotcall } from "./shotcall.js";
 import { deepReasonBoard } from "./deepReason.js";
 import { computeOracleBrain } from "./oracleBrain.js";
 import { computeTacticalBrain } from "./tacticalBrain.js";
+import { computeObjClockBrain } from "./objClockBrain.js";
 
 export type ElitePriority =
   | "critical" // death, hp
@@ -190,6 +191,35 @@ export function synthesizeEliteCallouts(opts: {
     }
   } catch {
     /* tactical optional */
+  }
+
+  // ── OBJECTIVE CLOCK (dragon/baron/herald/wave — legal events + public timers) ──
+  try {
+    if (!a.you.isDead && !mode.noRecall) {
+      const clock = computeObjClockBrain(ctx, a, mode);
+      if (clock?.speak && clock.score >= 58) {
+        // Don't drown mid-teamfight with macro unless ace/convert
+        const midFight =
+          a.battlePhase === "teamfight" ||
+          a.battlePhase === "skirmish" ||
+          a.battlePhase === "disengage";
+        if (!midFight || clock.score >= 85 || a.fightLight === "green") {
+          add(
+            clock.score >= 80 ? "convert" : "tempo",
+            Math.min(86, clock.score + 4),
+            "objective_clock",
+            clock.speak,
+            clock.primary
+              ? `${clock.primary.label} eta=${clock.primary.etaSec}`
+              : clock.phaseLabel,
+            "obj clock: public timers + observed takes",
+            `objclk:${clock.primary?.kind || "wave"}:${clock.primary?.urgency || ""}:${Math.floor(a.minute)}`
+          );
+        }
+      }
+    }
+  } catch {
+    /* obj clock optional */
   }
 
   // ── SHOTCALL (merged tactical line) ──

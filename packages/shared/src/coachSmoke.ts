@@ -12,6 +12,14 @@ import {
   type CoachWatchState,
 } from "./insights.js";
 import { isObviousLine } from "./coachLines.js";
+import { computeMatchAnalytics } from "./analytics.js";
+import {
+  emptyMatchMemory,
+  updateMatchMemory,
+} from "./matchMemory.js";
+import { buildPostGameReport } from "./postGameReport.js";
+import { gradeMatch } from "./goals.js";
+import { computeObjClockBrain } from "./objClockBrain.js";
 
 function youBase(over: Partial<ActiveYou> = {}): ActiveYou {
   return {
@@ -459,6 +467,139 @@ export const SMOKE_CASES: SmokeCase[] = [
         forbidObvious: true,
         _best: best,
       } as ReturnType<SmokeCase["run"]> & { _best: typeof best };
+    },
+  },
+  {
+    id: "obj_clock",
+    name: "Objective clock produces setup/live window",
+    run: () => {
+      const prev = emptyWatchState();
+      prev.seenMatchStart = true;
+      prev.lastLevel = 10;
+      prev.lastObjMinute = -1;
+      const c = ctx({
+        gameTime: 20 * 60 + 5,
+        gameMode: "CLASSIC",
+        mapName: "Map11",
+        you: {
+          championName: "Ahri",
+          level: 13,
+          kills: 4,
+          deaths: 1,
+          assists: 3,
+          currentGold: 500,
+          currentHealth: 1400,
+          maxHealth: 1800,
+        },
+        recentEvents: [
+          {
+            type: "DRAGON",
+            gameTime: 18 * 60,
+            message: "Dragon slain",
+          },
+        ],
+      });
+      const a = computeMatchAnalytics(c);
+      const clock = computeObjClockBrain(c, a);
+      const { insights } = runInsights(c, prev);
+      const best = pickSpeakableInsight(insights, "normal");
+      const ok =
+        Boolean(clock?.primary) &&
+        Boolean(a?.objectiveWindows?.length) &&
+        (clock!.timers.length > 0 || insights.some((i) => i.kind === "objective_clock"));
+      return {
+        expectSpeak: ok,
+        forbidObvious: true,
+        _best: ok
+          ? {
+              kind: "objective_clock",
+              line: clock?.speak || a?.objectiveWindows[0] || "obj",
+              score: clock?.score || 50,
+            }
+          : best,
+      } as ReturnType<SmokeCase["run"]> & {
+        _best: { kind: string; line: string; score: number } | null;
+      };
+    },
+  },
+  {
+    id: "post_game_report",
+    name: "Post-game report builds habits + next LO",
+    run: () => {
+      const c = ctx({
+        gameTime: 1800,
+        you: {
+          championName: "Ahri",
+          level: 14,
+          kills: 6,
+          deaths: 4,
+          assists: 7,
+          creeps: 180,
+          currentGold: 400,
+          currentHealth: 1500,
+          maxHealth: 2000,
+          isDead: false,
+        },
+      });
+      let mem = emptyMatchMemory("Ahri");
+      const c1 = ctx({
+        gameTime: 400,
+        you: {
+          championName: "Ahri",
+          deaths: 1,
+          currentGold: 1400,
+          kills: 1,
+          assists: 0,
+          creeps: 40,
+          level: 6,
+        },
+      });
+      mem = updateMatchMemory(mem, c1, computeMatchAnalytics(c1));
+      const c2 = ctx({
+        gameTime: 520,
+        you: {
+          championName: "Ahri",
+          deaths: 2,
+          currentGold: 200,
+          kills: 1,
+          assists: 1,
+          creeps: 50,
+          level: 7,
+        },
+      });
+      mem = updateMatchMemory(mem, c2, computeMatchAnalytics(c2));
+      const grade = gradeMatch({
+        kills: 6,
+        deaths: 4,
+        assists: 7,
+        creeps: 180,
+        gameTimeSec: 1800,
+        earlyDeaths: 2,
+        gameMode: "CLASSIC",
+        mapName: "Map11",
+      });
+      const report = buildPostGameReport({
+        ctx: c,
+        memory: mem,
+        analytics: computeMatchAnalytics(c),
+        grade,
+        result: "loss",
+      });
+      const ok =
+        Boolean(report) &&
+        report.scoreline.includes("Ahri") &&
+        report.nextQueueLo.length > 8 &&
+        report.cards.length >= 3 &&
+        report.speakable.length > 10;
+      return {
+        expectSpeak: ok,
+        expectKind: ok ? "death" : "post_game_fail",
+        _best: ok
+          ? { kind: "death", line: report.speakable, score: 99 }
+          : null,
+      } as ReturnType<SmokeCase["run"]> & {
+        _best: { kind: string; line: string; score: number } | null;
+      };
     },
   },
 ];

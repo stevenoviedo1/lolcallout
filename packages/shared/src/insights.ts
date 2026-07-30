@@ -491,29 +491,29 @@ export function detectCoachInsights(opts: {
   }
   next.lastFightLight = a.fightLight;
 
-  // Objective clock windows (SR) — speak once per window
-  if (
-    !a.aram &&
-    !a.arena &&
-    a.objectiveWindows[0] &&
-    a.minute !== prev.lastObjMinute &&
-    [5, 8, 14, 20, 25].includes(a.minute)
-  ) {
-    const objLine =
-      a.fightLight === "green"
-        ? `${you.championName}: ${a.objectiveWindows[0]} — numbers good, set up now.`
-        : a.fightLight === "red"
-          ? `${you.championName}: ${a.objectiveWindows[0]} — don't force alone; crash and wait.`
-          : `${you.championName}: ${a.objectiveWindows[0]} — shove first, arrive together.`;
-    insights.push({
-      kind: "objective_clock",
-      score: 50,
-      reason: a.objectiveWindows[0],
-      line: flavorLine(objLine, personality, seed),
-      signature: `objclock:${a.minute}`,
-      severity: "info",
-    });
-    next.lastObjMinute = a.minute;
+  // Objective clock windows (SR) — speak on setup/live edges or once per key minute
+  if (!a.aram && !a.arena && a.objectiveWindows[0] && a.minute !== prev.lastObjMinute) {
+    const win = a.objectiveWindows[0];
+    const isEdge =
+      [5, 8, 14, 19, 20, 25].includes(a.minute) ||
+      /UP|in ~\d+s|crash/i.test(win);
+    if (isEdge) {
+      const objLine =
+        a.fightLight === "green"
+          ? `${you.championName}: ${win} — numbers good, set up now.`
+          : a.fightLight === "red"
+            ? `${you.championName}: ${win} — don't force alone; crash and wait.`
+            : `${you.championName}: ${win} — shove first, arrive together.`;
+      insights.push({
+        kind: "objective_clock",
+        score: /UP|in ~[0-4]?\d?s/i.test(win) ? 58 : 50,
+        reason: win,
+        line: flavorLine(objLine, personality, seed),
+        signature: `objclock:${a.minute}:${win.slice(0, 24)}`,
+        severity: "info",
+      });
+      next.lastObjMinute = a.minute;
+    }
   }
 
   // --- Deltas from analytics (soft/hard without agent) ---
@@ -820,6 +820,7 @@ export function detectCoachInsights(opts: {
         identity: "tempo_flip",
         battle: "battle",
         shotcall: "battle",
+        objective_clock: "objective_clock",
       };
       insights.push({
         kind: kindMap[e.kind] || "brain_window",

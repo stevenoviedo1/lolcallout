@@ -154,18 +154,58 @@ function powerSpike(you: ActiveYou): string | null {
   return null;
 }
 
-function objectiveWindows(minute: number, mode: GameMode, aram: boolean): string[] {
+function objectiveWindows(
+  minute: number,
+  mode: GameMode,
+  aram: boolean,
+  gameTimeSec: number,
+  recentEvents?: { type: string; gameTime: number }[]
+): string[] {
   if (aram || mode === "ARENA") return [];
   const w: string[] = [];
-  // Heuristic windows (not exact API timers — Live Client may not expose all)
-  if (minute >= 4 && minute <= 6) w.push("first scuttle / early river fight window");
-  if (minute >= 5 && minute < 6) w.push("~5:00 grubs/dragon setup depending on patch map");
-  if (minute >= 8 && minute <= 10) w.push("second objective rotation window");
-  if (minute >= 14 && minute <= 16) w.push("herald/dragon mid rotate");
-  if (minute >= 19 && minute <= 22) w.push("pre-baron / late dragon soul path");
-  if (minute >= 25) w.push("baron/elder threat phase — group for next major");
-  if (minute % 5 === 0) w.push("wave crash timer — good moment to move");
-  return w;
+  const t = Math.max(0, Math.floor(gameTimeSec));
+  const events = recentEvents || [];
+  const lastOf = (type: string) => {
+    let best: { type: string; gameTime: number } | null = null;
+    for (const e of events) {
+      if (e.type === type && (!best || e.gameTime >= best.gameTime)) best = e;
+    }
+    return best;
+  };
+
+  // Event-aware respawn ETAs (public timers + observed takes)
+  const lastDrake = lastOf("DRAGON");
+  if (lastDrake) {
+    const eta = lastDrake.gameTime + 5 * 60 - t;
+    w.push(eta <= 0 ? "Dragon UP (post-take respawn)" : `Dragon in ~${Math.round(eta)}s`);
+  } else if (t < 5 * 60) {
+    w.push(`First dragon in ~${5 * 60 - t}s`);
+  } else if (minute >= 5 && minute <= 7) {
+    w.push("Dragon contest window");
+  }
+
+  const lastBaron = lastOf("BARON");
+  if (t < 20 * 60) {
+    if (minute >= 18) w.push(`Baron in ~${20 * 60 - t}s — set early`);
+  } else if (lastBaron) {
+    const eta = lastBaron.gameTime + 6 * 60 - t;
+    w.push(eta <= 0 ? "Baron UP" : `Baron in ~${Math.round(eta)}s`);
+  } else if (minute >= 20) {
+    w.push("Baron UP / threat phase");
+  }
+
+  if (minute >= 8 && minute < 20 && !lastOf("HERALD")) {
+    w.push(minute < 10 ? "Herald / grubs window" : "Herald still available pre-baron");
+  }
+  if (minute >= 14 && minute <= 16) w.push("mid rotate — herald/dragon");
+  if (minute >= 25) w.push("elder/baron close phase — group for next major");
+
+  // Wave crash clock (~90s early cycle)
+  const cycle = t < 14 * 60 ? 90 : 60;
+  const toCrash = t % cycle === 0 ? 0 : cycle - (t % cycle);
+  if (toCrash <= 15) w.push("cannon/crash wave now — shove then move");
+
+  return w.slice(0, 5);
 }
 
 function deriveWinCon(a: {
@@ -237,7 +277,13 @@ export function computeMatchAnalytics(ctx: GameContext): MatchAnalytics | null {
 
   const role = roleHint(you, ctx.gameMode, ctx.gameTime);
   const spike = powerSpike(you);
-  const objs = objectiveWindows(minute, ctx.gameMode, aram);
+  const objs = objectiveWindows(
+    minute,
+    ctx.gameMode,
+    aram,
+    ctx.gameTime,
+    ctx.recentEvents
+  );
   const winCon = deriveWinCon({
     phase,
     pressure,

@@ -3,52 +3,199 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>LOLCallout — Live AI League Coach for Windows</title>
+    <title>LOLCallout | Live AI League of Legends Coach — Voice Callouts for Windows</title>
     <meta
       name="description"
-      content="Live AI coach for League of Legends. Voice callouts in-game. Download for Windows. Founders: $50/mo for the first 100 seats."
+      content="LOLCallout is a live AI coach for League of Legends on Windows. Real-time voice callouts, coach HUD, death reviews, and post-game grades. Clean companion — no injection. Founders $50/mo."
     />
-    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <meta
+      name="keywords"
+      content="League of Legends coach, AI League coach, LoL voice callouts, live game coach, League AI coach Windows, LOLCallout, ranked coach, ARAM coach"
+    />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow" />
+    <meta name="author" content="LOLCallout" />
     <meta name="theme-color" content="#05070f" />
+    <meta name="application-name" content="LOLCallout" />
+    <meta name="apple-mobile-web-app-title" content="LOLCallout" />
     <link rel="canonical" href="https://lolcallout.com/" />
+
+    <!-- Open Graph -->
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="LOLCallout" />
+    <meta property="og:locale" content="en_US" />
     <meta property="og:url" content="https://lolcallout.com/" />
-    <meta property="og:title" content="LOLCallout — Live AI League Coach" />
+    <meta property="og:title" content="LOLCallout | Live AI League of Legends Coach" />
     <meta
       property="og:description"
-      content="In-game voice coach for League. Windows app. No injection. Founders $50/mo."
+      content="Real-time voice callouts and AI coaching for League of Legends. Windows companion — no injection. Founders $50/mo."
     />
     <meta property="og:image" content="https://lolcallout.com/app-live.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="800" />
+    <meta property="og:image:alt" content="LOLCallout live AI League of Legends coach HUD with voice callouts" />
+    <meta property="og:logo" content="https://lolcallout.com/logo-circle.png" />
+
+    <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="LOLCallout" />
-    <meta name="twitter:description" content="Live AI League coach for Windows." />
+    <meta name="twitter:title" content="LOLCallout | Live AI League of Legends Coach" />
+    <meta
+      name="twitter:description"
+      content="Real-time voice callouts and AI coaching for League on Windows. Clean companion — no injection."
+    />
     <meta name="twitter:image" content="https://lolcallout.com/app-live.png" />
+    <meta name="twitter:image:alt" content="LOLCallout live AI League coach interface" />
+
+    <!-- Google Search favicon / circle brand mark (multiples of 48px preferred) -->
+    <link rel="icon" href="/favicon-48.png" type="image/png" sizes="48x48" />
+    <link rel="icon" href="/favicon-96.png" type="image/png" sizes="96x96" />
+    <link rel="icon" href="/favicon-192.png" type="image/png" sizes="192x192" />
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="icon" href="/logo-circle.png" type="image/png" sizes="512x512" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+    <link rel="mask-icon" href="/logo-mark.svg" color="#7c5cff" />
     <link rel="manifest" href="/site.webmanifest" />
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css?v=20260728s" />
+    <link rel="stylesheet" href="/styles.css?v=20260730seo" />
+
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "SoftwareApplication",
-        "name": "LOLCallout",
-        "applicationCategory": "GameApplication",
-        "operatingSystem": "Windows",
-        "offers": {
-          "@type": "Offer",
-          "price": "50.00",
-          "priceCurrency": "USD",
-          "description": "Founders $50/mo (first 100). Standard $100/mo."
-        },
-        "url": "https://lolcallout.com/",
-        "downloadUrl": "https://github.com/stevenoviedo1/lolcallout/releases/download/v0.5.6/LOLCallout-Setup-0.5.6.exe"
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://lolcallout.com/#organization",
+            "name": "LOLCallout",
+            "url": "https://lolcallout.com/",
+            "logo": {
+              "@type": "ImageObject",
+              "url": "https://lolcallout.com/logo-circle.png",
+              "contentUrl": "https://lolcallout.com/logo-circle.png",
+              "width": 512,
+              "height": 512,
+              "caption": "LOLCallout"
+            },
+            "image": "https://lolcallout.com/logo-circle.png",
+            "description": "Live AI coach for League of Legends — real-time voice callouts on Windows.",
+            "sameAs": [
+              "https://github.com/stevenoviedo1/lolcallout"
+            ]
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://lolcallout.com/#website",
+            "url": "https://lolcallout.com/",
+            "name": "LOLCallout",
+            "description": "Live AI League of Legends coach with voice callouts for Windows.",
+            "publisher": { "@id": "https://lolcallout.com/#organization" },
+            "inLanguage": "en-US"
+          },
+          {
+            "@type": "WebPage",
+            "@id": "https://lolcallout.com/#webpage",
+            "url": "https://lolcallout.com/",
+            "name": "LOLCallout | Live AI League of Legends Coach",
+            "isPartOf": { "@id": "https://lolcallout.com/#website" },
+            "about": { "@id": "https://lolcallout.com/#app" },
+            "description": "Download LOLCallout — live AI coach for League of Legends with real-time voice callouts on Windows.",
+            "primaryImageOfPage": {
+              "@type": "ImageObject",
+              "url": "https://lolcallout.com/app-live.png"
+            },
+            "inLanguage": "en-US"
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://lolcallout.com/#app",
+            "name": "LOLCallout",
+            "applicationCategory": "GameApplication",
+            "applicationSubCategory": "League of Legends coaching",
+            "operatingSystem": "Windows 10, Windows 11",
+            "description": "Live AI coach for League of Legends. Real-time voice callouts, coach brain HUD, champ select plans, death reviews, and post-game grades. Clean companion window — no DLL injection.",
+            "url": "https://lolcallout.com/",
+            "image": [
+              "https://lolcallout.com/logo-circle.png",
+              "https://lolcallout.com/app-live.png"
+            ],
+            "screenshot": "https://lolcallout.com/app-live.png",
+            "downloadUrl": "https://github.com/stevenoviedo1/lolcallout/releases/download/v0.5.7/LOLCallout-Setup-0.5.7.exe",
+            "installUrl": "https://github.com/stevenoviedo1/lolcallout/releases/download/v0.5.7/LOLCallout-Setup-0.5.7.exe",
+            "softwareVersion": "0.5.7",
+            "author": { "@id": "https://lolcallout.com/#organization" },
+            "publisher": { "@id": "https://lolcallout.com/#organization" },
+            "offers": {
+              "@type": "Offer",
+              "price": "50.00",
+              "priceCurrency": "USD",
+              "availability": "https://schema.org/InStock",
+              "url": "https://lolcallout.com/#founders",
+              "description": "Founders plan $50/mo for the first 100 seats. Standard $100/mo after founders."
+            },
+            "featureList": [
+              "Live voice callouts during matches",
+              "AI coach brain HUD",
+              "Champ select plans",
+              "Death reviews",
+              "Post-game grades",
+              "Summoner's Rift, ARAM, and Arena support",
+              "Clean companion — no injection"
+            ]
+          },
+          {
+            "@type": "FAQPage",
+            "@id": "https://lolcallout.com/#faq",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "Will I get banned using LOLCallout?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "LOLCallout is built as a clean companion: no DLL injection, no scripts, no auto-play — legal Live Client data only. You always control the champion. Follow Riot’s Terms of Service. See compliance notes on lolcallout.com/compliance."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Is LOLCallout Windows only?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. Live game data is on the PC running League of Legends. A website cannot coach your live match the same way as the Windows companion app."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "What do founders get with LOLCallout?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Full product for $50/mo for 6 months from activation (12 months at $50/mo if all 100 seats fill). Same features as standard pricing — better price for early seats."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Is LOLCallout official Riot software?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "No. LOLCallout is an independent product and is not endorsed by Riot Games."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Windows says Publisher unknown — is LOLCallout safe?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "That warning appears on apps that are not Authenticode code-signed yet. Download only from lolcallout.com or the official GitHub release. If SmartScreen appears: More info → Run anyway. Code signing is being enabled so Windows will show the publisher name on future builds."
+                }
+              }
+            ]
+          }
+        ]
       }
     </script>
   </head>
@@ -62,6 +209,7 @@
         <nav class="nav-links nav-simple" id="navLinks">
           <a href="#product">App</a>
           <a href="#how">How it works</a>
+          <a href="#features">Features</a>
           <a href="#download">Download</a>
           <a href="#founders">Pricing</a>
           <a class="btn btn-sm" href="#founders">Get founders</a>
@@ -75,18 +223,21 @@
         <div class="container hero-simple-inner">
           <p class="eyebrow"><span class="dot"></span> Windows · Live voice · No injection</p>
           <h1>
-            A live AI coach<br />
+            Live AI League of Legends coach<br />
             <span class="grad">in your ear.</span>
           </h1>
           <p class="lead lead-simple">
-            Real-time callouts when the board flips — numbers, gold, deaths, next play. One voice.
-            Second-monitor companion. You still play the game.
+            LOLCallout is a real-time AI coach for League of Legends — voice callouts when the board
+            flips: numbers, gold, deaths, next play. One voice. Second-monitor companion. You still
+            play the game.
           </p>
           <div class="cta-row">
             <a class="btn btn-lg" href="#download">Download for Windows</a>
             <a class="btn btn-ghost btn-lg" href="#founders">Founders $50/mo</a>
           </div>
-          <p class="trust-simple">SR · ARAM · Arena · Clean companion · Not endorsed by Riot</p>
+          <p class="trust-simple">
+            Summoner’s Rift · ARAM · Arena · Clean companion · Not endorsed by Riot
+          </p>
 
           <figure class="hero-shot">
             <img
@@ -106,8 +257,11 @@
       <section id="product" class="section section-tight product-gallery-section">
         <div class="container">
           <div class="section-head section-head-center">
-            <h2>Built like a pro tool</h2>
-            <p>Futuristic companion window — second monitor ready. Looks as sharp as it coaches.</p>
+            <h2>League of Legends AI coach — built like a pro tool</h2>
+            <p>
+              Futuristic companion window for ranked, ARAM, and Arena — second-monitor ready. Looks as
+              sharp as it coaches.
+            </p>
           </div>
           <div class="product-gallery">
             <figure class="gallery-card gallery-card-wide">
@@ -232,31 +386,83 @@
               <li>Companion window — not an injected overlay</li>
             </ul>
             <p class="fine" style="margin: 12px 0 0">
-              <a href="/compliance.html">Full compliance notes</a>
+              <a href="/compliance">Full compliance notes</a>
               ·
-              <a href="/terms.html">Terms</a>
+              <a href="/terms">Terms</a>
               ·
-              <a href="/privacy.html">Privacy</a>
+              <a href="/privacy">Privacy</a>
             </p>
           </div>
         </div>
       </section>
 
-      <!-- 3 BENEFITS -->
+      <!-- HOW IT WORKS -->
       <section id="how" class="section section-tight">
         <div class="container">
+          <div class="section-head section-head-center">
+            <h2>How the live LoL coach works</h2>
+            <p>
+              Install once on Windows, queue League, and get event-driven voice coaching — not a
+              wall of spam.
+            </p>
+          </div>
           <div class="simple-grid">
             <article class="simple-card">
               <h3>1. Download</h3>
-              <p>One Windows app. Same PC as League. No client mods.</p>
+              <p>
+                One Windows app on the same PC as League of Legends. No client mods, no DLL
+                injection, no scripts.
+              </p>
             </article>
             <article class="simple-card">
               <h3>2. Queue</h3>
-              <p>Coach arms in-game: voice + brain HUD. Quiet when you’re fine.</p>
+              <p>
+                The AI coach arms in-game: live voice callouts + coach brain HUD. Quiet when you’re
+                fine; loud when the fight matters.
+              </p>
             </article>
             <article class="simple-card">
               <h3>3. Improve</h3>
-              <p>Death habits + post-game grade. One focus for next queue.</p>
+              <p>
+                Death reviews and post-game grades surface habits. One clear focus for the next
+                ranked or casual queue.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- FEATURES FOR SEO / USERS -->
+      <section id="features" class="section section-tight">
+        <div class="container">
+          <div class="section-head section-head-center">
+            <h2>What LOLCallout coaches during a match</h2>
+            <p>
+              Built for players who want a second brain in ranked and casual queues — without
+              cheating tools.
+            </p>
+          </div>
+          <div class="simple-grid">
+            <article class="simple-card">
+              <h3>Real-time voice callouts</h3>
+              <p>
+                Hear timing, objective pressure, and “next play” cues when gold, deaths, or the map
+                state flips — not a continuous monologue.
+              </p>
+            </article>
+            <article class="simple-card">
+              <h3>Coach brain HUD</h3>
+              <p>
+                Second-monitor companion with neural coach lines, live guide, and match analytics so
+                you can glance without leaving the game.
+              </p>
+            </article>
+            <article class="simple-card">
+              <h3>Draft, deaths, grades</h3>
+              <p>
+                Champ select plan, death habit reviews, and post-game grades so improvement compounds
+                across Summoner’s Rift, ARAM, and Arena.
+              </p>
             </article>
           </div>
         </div>
@@ -267,7 +473,7 @@
         <div class="container">
           <div class="simple-panel">
             <div>
-              <h2>Download</h2>
+              <h2>Download the League AI coach for Windows</h2>
               <p class="muted">Windows 10/11 · Installer · Desktop shortcut · Login in-app</p>
               <ul class="simple-list">
                 <li>Run <strong>LOLCallout Setup</strong> — puts a logo icon on your Desktop</li>
@@ -278,7 +484,7 @@
             <a
               class="btn btn-lg"
               id="downloadBtn"
-              href="https://github.com/stevenoviedo1/lolcallout/releases/download/v0.5.6/LOLCallout-Setup-0.5.6.exe"
+              href="https://github.com/stevenoviedo1/lolcallout/releases/download/v0.5.7/LOLCallout-Setup-0.5.7.exe"
               >Download installer</a
             >
           </div>
@@ -289,7 +495,8 @@
       <section id="faq" class="section section-tight">
         <div class="container">
           <div class="section-head section-head-center">
-            <h2>FAQ</h2>
+            <h2>League AI coach FAQ</h2>
+            <p>Common questions about bans, platforms, founders pricing, and safety.</p>
           </div>
           <div class="faq faq-simple">
             <details>
@@ -297,7 +504,7 @@
               <p>
                 Built as a clean companion: no injection, no scripts, no auto-play — legal Live
                 Client data only. You always control the champion. Follow Riot’s ToS;
-                <a href="/compliance.html">compliance notes</a>.
+                <a href="/compliance">compliance notes</a>.
               </p>
             </details>
             <details>
@@ -341,11 +548,14 @@
           </a>
           <div class="footer-links-inline">
             <a href="#product">App</a>
+            <a href="#features">Features</a>
             <a href="#download">Download</a>
             <a href="#founders">Pricing</a>
-            <a href="/compliance.html">Compliance</a>
-            <a href="/terms.html">Terms</a>
-            <a href="/privacy.html">Privacy</a>
+            <a href="#faq">FAQ</a>
+            <a href="/guides">Guides</a>
+            <a href="/compliance">Compliance</a>
+            <a href="/terms">Terms</a>
+            <a href="/privacy">Privacy</a>
           </div>
         </div>
         <p class="disclaimer">
@@ -472,5 +682,10 @@
         });
       })();
     </script>
+    <!-- Vercel Web Analytics -->
+    <script>
+      window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+    </script>
+    <script defer src="/_vercel/insights/script.js"></script>
   </body>
 </html>

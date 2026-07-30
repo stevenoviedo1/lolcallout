@@ -8,8 +8,10 @@ import {
   computeCoachBrain,
   computeMatchAnalytics,
   computeOracleBrain,
+  computeObjClockBrain,
   computeTacticalBrain,
   deepReasonBoard,
+  formatObjClockForAi,
   formatTacticalForAi,
   emptyMatchMemory,
   explainBestOptions,
@@ -165,14 +167,14 @@ No ACTION:/NOTE: labels unless asked.
 Never just "you died". Explain if it was low-% and give the next-spawn habit like you're talking to them.
 
 ### Post-game
-POST-GAME SUMMARY
-Grade: LoL-style letter S+…D (score/100), mode-aware (ranked / ARAM / Arena / etc.)
-Scoreline: ...
-Learning objectives: pass/fail
-• habit 1 (subtract one low-% / egregious pattern)
-• habit 2 (man advantage discipline or fight intention)
-• habit 3 (lose gracefully / logistics)
-Consistency: tight curve — mid-50s on controllable games; one rank at a time.
+POST-GAME SUMMARY (prefer POST-GAME REPORT block when present)
+Grade: LoL-style letter S+…D (score/100), mode-aware
+Scoreline + duration
+• What went right (1–2)
+• Top habit to kill + concrete fix
+• One leak (deaths / gold sit / missed convert)
+• Next queue LO (one sticky sentence)
+No spreadsheet dump. No generic "farm better".
 
 ### Champ select
 IDENTITY → PLAN (first 3 + spike) → COMBOS → WATCH (named) → ONE LEARNING FOCUS
@@ -240,6 +242,7 @@ ${boardOnly || "(empty)"}`;
   let deepBlock = "";
   let oracleBlock = "";
   let tacticalBlock = "";
+  let objClockBlock = "";
   try {
     let mem = emptyMatchMemory(y.championName);
     mem = updateMatchMemory(mem, context, analytics);
@@ -269,6 +272,8 @@ ${boardOnly || "(empty)"}`;
       oracleBlock = formatOracleForAi(oracle);
       const tac = computeTacticalBrain(analytics, mode);
       tacticalBlock = formatTacticalForAi(tac);
+      const clock = computeObjClockBrain(context, analytics, mode);
+      objClockBlock = formatObjClockForAi(clock);
     }
   } catch {
     /* optional */
@@ -301,6 +306,8 @@ ${oracleBlock}
 
 ${tacticalBlock}
 
+${objClockBlock}
+
 ${memoryBlock}
 
 ${eliteBlock}
@@ -316,6 +323,7 @@ ${brief.fallback}
 - Use SEQUENCE for multi-step plans (now → 15s → 45s) when answering what-now
 - Block NEXT_MISTAKE_TO_BLOCK explicitly when relevant
 - TACTICAL: honor PRIMARY_THREAT, COMBO_WINDOW, SHUTDOWN_RISK, CONVERT_SECONDS
+- OBJ CLOCK: use PRIMARY timer + WAVE; never invent jungle path or fog timers
 - If player is DEAD: only spawn-plan coaching (kind death) — never mid-fight chatter
 - If BATTLE_PHASE ≠ idle: coach the FIGHT first
 - Name dead champs + ult-unlocked threats + FOCUS when fighting
@@ -360,7 +368,7 @@ export function intentHint(
         ? "AI bro live tip: ONE natural spoken sentence (not telegraphic). If BATTLE hot, say the job in plain English (peel X, leave, take tower). Named champs. NEW wording."
         : "Live tip: one clear sentence. Battle job or convert/hold. Named champs. NEW wording.";
     case "summary":
-      return `${talk} Post-game: grade, what went well, 2–3 habits to subtract. Human tone, not a spreadsheet.`;
+      return `${talk} Post-game debrief: use POST-GAME REPORT if present. Grade, strengths, leaks, top habit + fix, next queue LO. 4–6 bullets max. Human tone.`;
     case "goals":
       return `${talk} Affirm ONE learning focus for this block.`;
     case "champ_select":

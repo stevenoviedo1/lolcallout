@@ -166,6 +166,13 @@ export function updateMatchMemory(
     if (analytics?.phase === "early" && you.deaths >= 2) {
       bumpHabit(next, "early_int", "early deaths stacking", t);
     }
+    // Tilt cluster: 2+ deaths within ~3 minutes
+    const recentDeaths = next.events.filter(
+      (e) => e.kind === "death" && t - e.t <= 180
+    ).length;
+    if (recentDeaths >= 2) {
+      bumpHabit(next, "tilt_cluster", "death cluster / tilt re-enter", t);
+    }
     next.youDeaths = you.deaths;
   }
 
@@ -193,6 +200,36 @@ export function updateMatchMemory(
           kind: "fight_green",
           note: analytics.fightReason,
         });
+        // If we already had a green and no convert_taken soon after → miss
+        if (lastGreen && t - lastGreen.t < 90) {
+          const converted = next.events.some(
+            (e) =>
+              (e.kind === "convert_taken" || e.kind === "obj") &&
+              e.t >= lastGreen.t &&
+              e.t <= t
+          );
+          if (!converted) {
+            next.greenWithoutConvert += 1;
+            if (next.greenWithoutConvert >= 2) {
+              bumpHabit(next, "miss_convert", "missing green-light converts", t);
+            }
+          }
+        }
+      }
+    }
+    // Convert taken: green + enemy dead + (kill or gold spend or objective event)
+    if (
+      analytics.fightLight === "green" &&
+      analytics.enemy.dead >= 1 &&
+      (you.kills > mem.youKills || analytics.battlePhase === "cleanup")
+    ) {
+      const lastC = next.events.filter((e) => e.kind === "convert_taken").pop();
+      if (!lastC || t - lastC.t > 25) {
+        pushEvent(next, {
+          t,
+          kind: "convert_taken",
+          note: `${analytics.enemyDeadNames.slice(0, 2).join("+") || "numbers"} down — convert window`,
+        });
       }
     }
     if (analytics.fightLight === "red") {
@@ -203,6 +240,25 @@ export function updateMatchMemory(
     }
     if (analytics.riskFlags.includes("critical_hp")) {
       bumpHabit(next, "low_hp_linger", "lingering low HP", t);
+    }
+  }
+
+  // Objective events from Live Client feed
+  for (const ev of ctx.recentEvents || []) {
+    if (ev.type === "DRAGON" || ev.type === "BARON" || ev.type === "HERALD") {
+      const sig = `obj:${ev.type}:${Math.floor(ev.gameTime / 15)}`;
+      const already = next.events.some(
+        (e) => e.kind === "obj" && e.note.includes(ev.type) && Math.abs(e.t - ev.gameTime) < 20
+      );
+      if (!already) {
+        pushEvent(next, {
+          t: ev.gameTime,
+          kind: "obj",
+          note: `${ev.type}${ev.message ? `: ${ev.message}` : ""}`.slice(0, 80),
+        });
+        // silence unused
+        void sig;
+      }
     }
   }
 

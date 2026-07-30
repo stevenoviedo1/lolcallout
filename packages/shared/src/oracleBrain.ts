@@ -163,18 +163,28 @@ function buildSequence(a: MatchAnalytics, deep: DeepReasoning | null): SequenceS
     return steps;
   }
 
-  // Default logistics
+  // Default logistics + obj clock
+  const objWin = a.objectiveWindows[0];
+  const objUp = objWin && /UP/i.test(objWin);
+  const objSoon = objWin && /in ~\d+s/i.test(objWin);
   steps.push({
     t: "now",
-    action: g >= 1100 && !a.noRecall ? `Crash then base ${g}g` : "Own nearest wave",
+    action:
+      objUp && a.manAdvantage >= 1
+        ? `Contest ${objWin!.split(/UP|in/)[0].trim()} with numbers`
+        : g >= 1100 && !a.noRecall
+          ? `Crash then base ${g}g`
+          : "Own nearest wave",
     why: bestId === "logistics" ? "Spike / consistency" : "Default high-%",
   });
   steps.push({
     t: "45s",
-    action: a.objectiveWindows[0]
-      ? `Look toward: ${a.objectiveWindows[0].split("—")[0].trim()}`
-      : "Move first after crash",
-    why: "Tempo",
+    action: objSoon
+      ? `Setup: ${objWin!.split("—")[0].trim()}`
+      : objWin
+        ? `Look toward: ${objWin.split("—")[0].trim()}`
+        : "Move first after crash",
+    why: "Tempo + objective clock",
   });
   return steps;
 }

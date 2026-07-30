@@ -345,10 +345,13 @@ export function coachAiStatus() {
       "oracle",
       "deep_reason",
       "tactical",
+      "obj_clock",
       "battle_reader",
       "elite",
       "match_memory",
+      "post_game",
     ] as const,
+    appDesktopTarget: "0.5.7",
   };
 }
 

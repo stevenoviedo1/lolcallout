@@ -35,6 +35,9 @@ import {
   maybeRotateBlockLearningObjective,
   resolveLearningObjective,
   formatPostGameLoCard,
+  buildPostGameReport,
+  formatPostGameReportText,
+  type PostGameReport,
   parseCoachPersonality,
   flavorLine,
   emptyMatchMemory,
@@ -161,6 +164,8 @@ interface AppState {
   goals: SessionGoal[];
   setGoals: (g: SessionGoal[]) => void;
   lastGrade: MatchGrade | null;
+  /** Premium post-game memory debrief */
+  lastPostGame: PostGameReport | null;
   champSelect: ChampSelectState | null;
   deathReport: DeathPatternReport | null;
   requestChampSelectPlan: () => Promise<void>;
@@ -640,6 +645,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ goals });
   },
   lastGrade: null,
+  lastPostGame: null,
   champSelect: null,
   deathReport: null,
   coachDebug: {
@@ -1531,24 +1537,61 @@ export const useAppStore = create<AppState>((set, get) => ({
         "One structural variable this block.";
       saveBlockLearningObjective(lo);
       maybeRotateBlockLearningObjective();
-      const loCard = formatPostGameLoCard(
-        lo,
-        grade?.letter,
-        grade?.habits?.[0] || get().coachBrain?.topRisk || undefined
-      );
+
+      // Premium post-game memory report (habits, leaks, next LO)
+      let postGame: PostGameReport | null = null;
+      try {
+        const a = computeMatchAnalytics(
+          safeCtx.inGame ? safeCtx : { ...safeCtx, inGame: true }
+        );
+        // Force analytics when game just ended: use last live stats with inGame true
+        const reportCtx = {
+          ...safeCtx,
+          inGame: true,
+          you: you || safeCtx.you,
+        };
+        postGame = buildPostGameReport({
+          ctx: reportCtx,
+          memory: matchMemory,
+          analytics: a || computeMatchAnalytics(reportCtx),
+          grade,
+          deathReport: dr,
+          result,
+          stickyLo: lo,
+        });
+      } catch {
+        postGame = null;
+      }
+
+      const loCard =
+        postGame?.loCard ||
+        formatPostGameLoCard(
+          lo,
+          grade?.letter,
+          grade?.habits?.[0] || get().coachBrain?.topRisk || undefined
+        );
+      const nextLo = postGame?.nextQueueLo || lo;
       try {
         localStorage.setItem("rc_next_queue_lo", loCard);
+        if (postGame) {
+          localStorage.setItem("rc_last_post_game", JSON.stringify(postGame));
+        }
       } catch {
         /* ignore */
       }
-      sessionLearningObjective = lo;
+      sessionLearningObjective = nextLo;
 
+      const reportText = postGame ? formatPostGameReportText(postGame) : "";
       const gradeLine = grade
         ? `\n\nGRADE ${grade.letter} (${grade.score}/100) · ${grade.modeLabel || ""}\n${grade.scaleNote || ""}\n${grade.goals.map((g) => `${g.passed ? "✓" : "✗"} ${g.detail}`).join("\n")}\nHabits: ${grade.habits.join(" · ")}\n\n${loCard}`
         : `\n\n${loCard}`;
+      const fullContent = reportText
+        ? `${reportText}\n\n---\nAI summary:\n${raw}${gradeLine}`
+        : raw + gradeLine;
       set((s) => ({
         activeSummary: summary,
         lastGrade: grade,
+        lastPostGame: postGame,
         nextQueueLo: loCard,
         coachSilence: null,
         messages: [
@@ -1556,9 +1599,14 @@ export const useAppStore = create<AppState>((set, get) => ({
           {
             id: `sum-${Date.now()}`,
             role: "system",
-            content: raw + gradeLine,
+            content: fullContent,
             createdAt: new Date().toISOString(),
-            meta: { kind: "summary", grade, learningObjective: lo },
+            meta: {
+              kind: "summary",
+              grade,
+              learningObjective: nextLo,
+              postGame,
+            },
           },
         ],
         toast: grade
@@ -1566,9 +1614,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           : "Summary ready — callouts stopped until next match",
       }));
       speakIfEnabled(
-        grade
-          ? `Grade ${grade.letter}. ${grade.habits[0] || ""}. Next game: ${lo}`
-          : `Next game focus: ${lo}`,
+        postGame?.speakable ||
+          (grade
+            ? `Grade ${grade.letter}. ${grade.habits[0] || ""}. Next game: ${nextLo}`
+            : `Next game focus: ${nextLo}`),
         "reply"
       );
       void get().loadHistory();

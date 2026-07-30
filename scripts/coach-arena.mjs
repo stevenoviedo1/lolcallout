@@ -22,6 +22,7 @@ import { isObviousLine } from "../packages/shared/dist/coachLines.js";
 import { deepReasonBoard } from "../packages/shared/dist/deepReason.js";
 import { computeOracleBrain } from "../packages/shared/dist/oracleBrain.js";
 import { computeTacticalBrain } from "../packages/shared/dist/tacticalBrain.js";
+import { computeObjClockBrain } from "../packages/shared/dist/objClockBrain.js";
 
 function you(o = {}) {
   return {
@@ -322,6 +323,7 @@ for (const s of scenarios) {
   const deep = deepReasonBoard(a, mode, "hype");
   const oracle = a ? computeOracleBrain(a, deep, "hype") : null;
   const tac = a ? computeTacticalBrain(a, mode) : null;
+  const clock = computeObjClockBrain(s.ctx, a, mode);
   const elite = synthesizeEliteCallouts({
     ctx: s.ctx,
     analytics: a,
@@ -376,6 +378,14 @@ for (const s of scenarios) {
     tac?.shutdownRisk,
     "leadProtect",
     tac?.leadProtect
+  );
+  console.log(
+    "objclock:",
+    clock?.primary
+      ? `${clock.primary.label} eta=${clock.primary.etaSec}s ${clock.primary.urgency}`
+      : "-",
+    "phase",
+    clock?.phaseLabel || "-"
   );
   console.log("light", a?.fightLight, "man", a?.manAdvantage, "hp", a?.you?.hpPct?.toFixed?.(0));
   console.log("LINE:", line);

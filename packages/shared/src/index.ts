@@ -446,6 +446,21 @@ export {
   type ThreatEntry,
 } from "./tacticalBrain.js";
 export {
+  computeObjClockBrain,
+  formatObjClockForAi,
+  type ObjClockBrain,
+  type ObjTimer,
+  type ObjKind,
+} from "./objClockBrain.js";
+export {
+  buildPostGameReport,
+  formatPostGameReportText,
+  formatPostGameReportForAi,
+  type PostGameReport,
+  type PostGameCard,
+  type PostGameHabitFix,
+} from "./postGameReport.js";
+export {
   computeCoachBrain,
   applyBrainToOptions,
   formatBrainForAi,
