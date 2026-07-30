@@ -303,9 +303,8 @@ export function computeOracleBrain(
   if (speak.split(/\s+/).length > 22) {
     speak = speak.split(/\s+/).slice(0, 20).join(" ").replace(/[,;:]$/, "") + ".";
   }
-  if (personality === "hype") {
-    speak = toNaturalTalk(speak, "hype");
-  }
+  // Always full human sentences (friend + bro)
+  speak = toNaturalTalk(speak, personality);
 
   const forAi = [
     "## Oracle brain (premium)",

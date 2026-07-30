@@ -272,7 +272,7 @@ export function deepReasonBoard(
   });
 
   const speak =
-    personality === "hype" ? toNaturalTalk(speakRaw, "hype") : speakRaw;
+    toNaturalTalk(speakRaw, personality);
 
   const forAi = [
     "## Deep reasoning (multi-option EV — think then speak)",
@@ -391,17 +391,21 @@ function deepReasonDeath(
 
   let speakRaw: string;
   if (best.id === "spawn_buy") {
-    speakRaw = `${c}: spawn buy ${g}g — different path${killer ? `, respect ${killer}` : ""}, wave first.`;
+    speakRaw = killer
+      ? `When you spawn, buy with that ${g} gold first, respect ${killer}, take a different path, and clear the nearest wave before you force anything.`
+      : `When you spawn, buy with that ${g} gold first, take a different path, and clear the nearest wave before you force anything.`;
   } else if (best.id === "spawn_group_end") {
-    speakRaw = `${c}: spawn group mid and end — no solo side heroics.`;
+    speakRaw = `When you spawn, group mid with your team and look to end — no solo side-lane heroics.`;
   } else if (best.id === "spawn_stabilize") {
-    speakRaw = `${c}: spawn farm safe — no equalizer all-in${killer ? `; respect ${killer}` : ""}.`;
+    speakRaw = killer
+      ? `When you spawn, farm a safe side and respect ${killer}. Only take high-percent plays, not equalizer all-ins.`
+      : `When you spawn, farm a safe side. Only take high-percent plays, not equalizer all-ins.`;
   } else if (killer) {
-    speakRaw = `${c}: next spawn respect ${killer} — different entry, wait for two.`;
+    speakRaw = `When you spawn, respect ${killer} — take a different entry, wait for two allies, then rejoin.`;
   } else {
-    speakRaw = `${c}: next spawn take the wave and wait for two allies.`;
+    speakRaw = `When you spawn, take the nearest wave and wait for two allies before you look for a fight.`;
   }
-  const speak = personality === "hype" ? toNaturalTalk(speakRaw, "hype") : speakRaw;
+  const speak = toNaturalTalk(speakRaw, personality);
 
   return {
     question: "Best next-spawn plan after death?",
@@ -429,7 +433,7 @@ function deepReasonDeath(
 function buildSpeak(
   best: ReasonOption,
   a: MatchAnalytics,
-  _personality: CoachPersonality,
+  personality: CoachPersonality,
   ctx: {
     deadStr: string | null;
     focus: string | null;
@@ -440,45 +444,58 @@ function buildSpeak(
     kitOpener?: string;
   }
 ): string {
-  const c = a.you.champ;
+  let raw: string;
   switch (best.id) {
     case "disengage":
       if (ctx.noRecall) {
-        return `${c}: ${ctx.hp}% — max range only${ctx.g >= 1000 ? `, shop on death with ${ctx.g}g` : ""}. Don't int.`;
+        raw =
+          ctx.g >= 1000
+            ? `You're at ${ctx.hp} percent with ${ctx.g} gold — stay max range only and shop when you die. Don't donate it.`
+            : `You're at ${ctx.hp} percent — max range only. Don't frontline this.`;
+      } else {
+        raw =
+          ctx.g >= 800
+            ? `You're at ${ctx.hp} percent sitting on ${ctx.g} gold — leave and base. That gold is a shutdown if you stay.`
+            : `You're at ${ctx.hp} percent — leave now. This fight isn't yours.`;
       }
-      return ctx.g >= 800
-        ? `${c}: ${ctx.hp}% and ${ctx.g}g — leave and base. That gold is a shutdown if you stay.`
-        : `${c}: ${ctx.hp}% — leave now. This fight isn't yours.`;
+      break;
     case "convert":
       if (a.enemy.alive === 0) {
-        return !ctx.noRecall && ctx.g >= 1300
-          ? `${c}: ACE — take a tower or inhib, then base ${ctx.g}g. No fog chase.`
-          : `${c}: ACE — baron, inhib, or plates now. Don't chase for style.`;
+        raw =
+          !ctx.noRecall && ctx.g >= 1300
+            ? `That's an ace — take a tower or inhib, then base with your ${ctx.g} gold. Don't chase into fog.`
+            : `That's an ace — take baron, an inhib, or plates right now. Don't chase for style points.`;
+      } else if (a.you.roleHint === "JUNGLE" && ctx.deadStr) {
+        raw = `${ctx.deadStr} are down — you start the objective and let your allies crash waves.`;
+      } else {
+        raw = ctx.deadStr
+          ? `${ctx.deadStr} are down — take plates or the objective now. Don't chase into fog.`
+          : `The map is free — take a tower or objective, not another fifty-fifty fight.`;
       }
-      if (a.you.roleHint === "JUNGLE" && ctx.deadStr) {
-        return `${c}: ${ctx.deadStr} down — you start the objective, allies crash waves.`;
-      }
-      return ctx.deadStr
-        ? `${c}: ${ctx.deadStr} down — plates or obj now, not a fog chase.`
-        : `${c}: map is free — take tower or obj, not another 50/50.`;
+      break;
     case "commit_fight":
       if (ctx.kitOpener && ctx.focus) {
-        return `${c}: look ${ctx.kitOpener} on ${ctx.focus} — leave if they turn.`;
+        raw = `Look for ${ctx.kitOpener} on ${ctx.focus} — and leave if they turn on you.`;
+      } else {
+        raw = ctx.focus
+          ? `Commit on ${ctx.focus} as a secondary engage, not first in.`
+          : `Numbers are fine — take the fight with your team, don't solo this.`;
       }
-      return ctx.focus
-        ? `${c}: commit on ${ctx.focus} — secondary engage, not first-in.`
-        : `${c}: numbers are fine — take the fight with your team, don't solo.`;
+      break;
     case "peel":
-      return ctx.threat
-        ? `${c}: peel your carry — ${ctx.threat} is the delete threat.`
-        : `${c}: peel and zone. You're the wall.`;
+      raw = ctx.threat
+        ? `Peel your carry right now — ${ctx.threat} is the delete threat.`
+        : `Peel and zone for your carry. You're the wall right now.`;
+      break;
     case "logistics":
     default:
-      if (!ctx.noRecall && ctx.g >= 1100) {
-        return `${c}: ${ctx.g}g — crash one wave then base for the spike.`;
-      }
-      return `${c}: own the next wave. Don't force a low-% look.`;
+      raw =
+        !ctx.noRecall && ctx.g >= 1100
+          ? `You've got ${ctx.g} gold — crash one wave, then base for the item spike.`
+          : `Own the next wave. Don't force a low-percent look into nothing.`;
+      break;
   }
+  return toNaturalTalk(raw, personality);
 }
 
 export function formatDeepReasonForAi(d: DeepReasoning | null): string {

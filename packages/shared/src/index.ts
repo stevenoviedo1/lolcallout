@@ -373,6 +373,7 @@ export {
   personalitySystemBlock,
   flavorLine,
   toNaturalTalk,
+  isTelegraphicLine,
   COACH_PERSONALITY_LABELS,
   type CoachPersonality,
 } from "./personality.js";

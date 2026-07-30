@@ -58,31 +58,31 @@ function fmt(sec: number): string {
 function habitFix(h: HabitCounter): string {
   const k = h.key;
   if (k === "die_rich" || /die_rich|unspent/.test(h.label)) {
-    return "Base earlier when pocket ≥ 1200g — items beat ego.";
+    return "Base earlier when you're sitting on twelve hundred gold or more — items beat ego.";
   }
   if (k === "die_numbers" || /number deficit/.test(h.label)) {
-    return "Count alive before walk-up — never equalize 1v2+.";
+    return "Count who's alive before you walk up — never equalize a one-versus-two.";
   }
   if (k.startsWith("die_to_")) {
     const who = h.label.replace(/^repeat deaths to /i, "") || "that champ";
-    return `Respect ${who}: different entry, wait for two, no same path.`;
+    return `Respect ${who}: take a different entry, wait for two allies, and don't take the same path.`;
   }
   if (k === "early_int" || /early deaths/.test(h.label)) {
-    return "Survive to 14 — farm, crash, no river alone pre-6.";
+    return "Survive to fourteen minutes — farm, crash, and skip the river alone before six.";
   }
   if (k === "low_hp_linger" || /low HP/.test(h.label)) {
-    return "At <30% leave the wave — dead coach = zero value.";
+    return "When you're under thirty percent, leave the wave. A dead coach has zero value.";
   }
   if (k === "kill_sit_gold" || /sitting on gold/.test(h.label)) {
-    return "After a kill: plate/obj OR base — never sit full buy on the map.";
+    return "After a kill, take a plate or objective, or base — never sit on a full buy on the map.";
   }
   if (k === "tilt_cluster" || /tilt|death cluster/.test(h.label)) {
-    return "After 2 deaths in 3 min: mute all-in, mosquito farm only.";
+    return "After two deaths in three minutes, stop forcing. Mosquito farm only.";
   }
   if (k === "miss_convert" || /miss convert|green/.test(h.label)) {
-    return "Green light = plates/obj in the timer — name the convert out loud.";
+    return "When you get a free window, name the convert out loud — plates or objective in the timer.";
   }
-  return "Subtract this pattern next queue — one sticky LO.";
+  return "Subtract this pattern next queue and keep one sticky learning objective.";
 }
 
 function deriveStrengths(

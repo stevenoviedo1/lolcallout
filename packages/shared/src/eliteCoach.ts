@@ -58,9 +58,15 @@ const BANNED = [
 
 function clean(line: string): string {
   let s = line.replace(/\s+/g, " ").trim();
-  // Cap live voice length
-  if (s.split(/\s+/).length > 22) {
-    s = s.split(/\s+/).slice(0, 20).join(" ").replace(/[,;:]$/, "") + ".";
+  // Allow full human sentences — only hard-cap extreme run-ons
+  if (s.split(/\s+/).length > 34) {
+    // Prefer cutting at sentence end
+    const sentences = s.match(/[^.!?]+[.!?]+/g);
+    if (sentences && sentences[0] && sentences[0].split(/\s+/).length >= 8) {
+      s = sentences.slice(0, 2).join(" ").trim();
+    } else {
+      s = s.split(/\s+/).slice(0, 30).join(" ").replace(/[,;:]$/, "") + ".";
+    }
   }
   return s;
 }
@@ -70,12 +76,12 @@ function qualityOk(line: string): boolean {
   if (isObviousLine(line)) return false;
   const low = line.toLowerCase();
   if (BANNED.some((b) => low.includes(b))) return false;
-  // Must have a concrete anchor: number, %, name colon, or known verb
+  // Concrete anchor OR natural "you/your" coaching sentence
   const concrete =
     /\d/.test(line) ||
     /%/.test(line) ||
-    /:/.test(line) ||
-    /\b(plates?|base|ult|spawn|ward|shove|hold|respect|crash|obj|baron|dragon|peel|focus|dps|disengage|fight|collapse|bodyblock|charm|tower|inhib|g)\b/i.test(
+    /\b(you|your|you're)\b/i.test(line) ||
+    /\b(plates?|base|ult|spawn|ward|shove|hold|respect|crash|obj|baron|dragon|peel|focus|dps|disengage|fight|collapse|bodyblock|charm|tower|inhib|gold|allies?)\b/i.test(
       line
     );
   return concrete;
@@ -110,12 +116,15 @@ export function synthesizeEliteCallouts(opts: {
     signature: string
   ) => {
     let L = clean(line);
-    // Shotcalls already polished; other lines get light personality
-    if (kind !== "shotcall") {
-      L = flavorLine(L, personality, seed);
-    } else {
+    // Always human full-sentence voice (shotcall + everything else)
+    if (kind === "shotcall") {
       L = polishShotcall(L, personality);
+    } else {
+      L = flavorLine(L, personality, seed);
     }
+    L = clean(L);
+    // Collapse accidental double words from rewrites
+    L = L.replace(/\b(\w+)(\s+\1){1,3}\b/gi, "$1");
     if (!qualityOk(L)) return;
     if (memoryBlocksLine(memory, L)) score -= 40;
     if (score < 12) return;

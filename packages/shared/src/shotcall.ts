@@ -19,9 +19,14 @@ function words(s: string): number {
   return s.trim().split(/\s+/).filter(Boolean).length;
 }
 
-function clip(s: string, maxWords = 18): string {
+function clip(s: string, maxWords = 28): string {
   const w = s.trim().split(/\s+/);
   if (w.length <= maxWords) return s.trim().replace(/\s+/g, " ");
+  // Prefer first full sentence if we have one
+  const m = s.match(/^(.+?[.!?])(?:\s|$)/);
+  if (m && m[1].split(/\s+/).length >= 8 && m[1].split(/\s+/).length <= maxWords + 4) {
+    return m[1].trim();
+  }
   return w.slice(0, maxWords).join(" ").replace(/[,;:]$/, "") + ".";
 }
 
@@ -268,7 +273,7 @@ export function makeShotcall(
   return null;
 }
 
-/** Hype → natural bro talk; friend → clean short call */
+/** Always expand to full human sentences (friend + bro). */
 export function polishShotcall(line: string, personality: CoachPersonality): string {
   let s = line.trim();
   s = s
@@ -277,9 +282,5 @@ export function polishShotcall(line: string, personality: CoachPersonality): str
     .replace(/\bKeep your head\.?/gi, "")
     .replace(/\s+/g, " ")
     .trim();
-
-  if (personality === "hype") {
-    return toNaturalTalk(s, "hype", { seed: words(s) });
-  }
-  return s;
+  return toNaturalTalk(s, personality, { seed: words(s) });
 }
