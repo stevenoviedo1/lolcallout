@@ -32,27 +32,31 @@ export function parseCoachPersonality(raw: unknown): CoachPersonality {
 /** System prompt block injected into every AI request */
 export function personalitySystemBlock(mode: CoachPersonality): string {
   if (mode === "hype") {
-    return `## Voice mode: AI BRO (talk like a real person)
-You are the player's AI bro — a cracked friend on Discord who actually knows League.
-ALWAYS use full sentences with normal English. Never telegraphic shotcall-speak.
+    return `## Voice mode: AI BRO (real Discord duo — not a coach bot)
+You are their actual duo queue bro on Discord. Cracked at League, zero corporate, zero robot.
+You talk like a real person mid-game — short, messy, human. Not a shotcall HUD. Not a tutorial.
 
-### How you sound
-- Talk TO the player as "you". NEVER call them by their champion name (not "Ahri, base" / "Ahri: tip").
-- You may name ENEMY or ALLY champs. Your champ only when comparing roles, not as a nickname.
-- Conversational: "You're sitting on fifteen hundred at eighteen percent — just base."
-- NOT telegraphic: "Ahri: 18% 1500g — BASE."
-- NOT corporate filler. NOT the same line twice — always new wording.
-- Live tips: one or two complete sentences. Never two coaches / never restate the same tip.
-- Praise clean plays. Light smack on ego plays — roast the decision, never the person.
+### How real bros talk
+- Talk TO them as "you". NEVER call them by champ name ("Ahri base" / "Ahri: tip" is banned).
+- Name enemies/allies freely. Your champ only if comparing kits.
+- Contractions, casual words: "yo", "nah", "dude", "bro", "fr", "lowkey", "we're good", "that's grief".
+- Roast the PLAY when they ego ("that was free for them", "why are we taking that") — never the person, no slurs.
+- Hype real plays briefly ("clean", "that's the one", "yes") then move on — don't monologue.
+- One thought at a time. Sound mid-game, not like a post-game essay.
+- Live tip: 1–2 sentences max, spoken out loud. Vary wording every time.
 
-### Examples
-Good: "You're one more fight from gifting a shutdown with all that gold. Just base and come back full."
-Good: "Viego and Jhin are down — take the tower or the objective. Don't chase into fog."
-Good: "Zed is hunting your ADC. Bodyblock for Jinx — you're the wall right now."
-Good: "That death was low percent. When you spawn, take the wave and wait for two people."
-Bad: "Ahri: 18% 1500g — BASE."
-Bad: "Hey Ahri, play safe."
-Bad: Repeating the last tip with different punctuation.`;
+### Sound like this (good)
+- "Yo you're at like thirty percent with a full buy in the bag — just base, that fight is free LP for them."
+- "Viego and Jhin are dead bro, take the tower or the obj. Don't run into fog for nothing."
+- "Zed's hunting your ADC — bodyblock for Jinx, you're the wall."
+- "Nah that death was low percent. Spawn, take the wave, wait for two before you look again."
+- "That's grief if you stay for one more. Base."
+
+### Never sound like this (bad)
+- "Ahri: 18% 1500g — BASE."
+- "Hey Ahri, play safe." / "Focus objectives." / "Group up." / "Best option is…"
+- Polished corporate coaching ("the optimal play here is to…")
+- Same tip twice with different punctuation.`;
   }
 
   return `## Voice mode: FRIEND COACH
@@ -177,7 +181,7 @@ export function toNaturalTalk(
     if (/base|leave/i.test(rest)) {
       return bro
         ? finishSentence(
-            `You're at ${pct} percent sitting on ${gold} gold — just base. That stack is a free shutdown if you stay`
+            `Yo you're sitting at ${pct} percent with ${gold} gold — just base bro. That stack is a free shutdown if you stay`
           )
         : finishSentence(
             `You're at ${pct} percent with ${gold} gold in pocket. The best move is to base now, not take another fight`
@@ -186,7 +190,7 @@ export function toNaturalTalk(
     if (/max range|shop on death|don't donate|backline/i.test(rest)) {
       return bro
         ? finishSentence(
-            `You're at ${pct} percent with ${gold} gold banked — stay max range and shop when you die. Don't donate that gold`
+            `You're at ${pct} with ${gold} gold banked — max range only, shop on death. Don't donate that`
           )
         : finishSentence(
             `You're at ${pct} percent holding ${gold} gold. Stay max range only, and spend it on death if you have to`
@@ -195,7 +199,7 @@ export function toNaturalTalk(
     if (/leave|wave/i.test(rest)) {
       return finishSentence(
         bro
-          ? `You're at ${pct} percent with ${gold} gold — leave the wave and base. Staying is free LP for them`
+          ? `Nah leave the wave — you're ${pct} percent with ${gold} gold. Staying is free LP for them`
           : `You're at ${pct} percent with ${gold} gold. Give the wave and base — fighting here is low percent`
       );
     }
@@ -208,14 +212,14 @@ export function toNaturalTalk(
     if (/base|leave/i.test(rest)) {
       return finishSentence(
         bro
-          ? `You're at ${pct} percent — leave the fight and base. Staying is free LP for them`
+          ? `You're at ${pct} percent bro — leave that fight and base. Staying is free for them`
           : `You're at ${pct} percent. Leave the fight and base; you have no value if you die here`
       );
     }
     if (/max range|frontline|backline/i.test(rest)) {
       return finishSentence(
         bro
-          ? `You're at ${pct} percent — max range only, don't frontline that`
+          ? `You're at ${pct} — max range only, don't frontline that`
           : `You're at ${pct} percent. Stay max range and don't frontline this fight`
       );
     }
@@ -264,7 +268,7 @@ export function toNaturalTalk(
       if (/baron|inhib|plates|obj|tower/i.test(rest)) {
         return finishSentence(
           bro
-            ? `That's an ace — take baron, the inhib, or plates right now. Don't chase into fog for style points`
+            ? `That's an ace — go baron, inhib, or plates right now. Don't chase fog for style points`
             : `You have an ace. Take baron, an inhib, or plates now, and don't chase into the fog`
         );
       }
@@ -284,7 +288,7 @@ export function toNaturalTalk(
       if (/plates|obj|tower|inhib|base|convert|free map/i.test(rest)) {
         return finishSentence(
           bro
-            ? `${downPhrase} — take the tower or objective. Don't chase into fog for style points`
+            ? `${downPhrase} bro — take the tower or the obj. Don't run into fog for nothing`
             : `${downPhrase}. Take the tower or the objective while you have the window, and don't chase into fog`
         );
       }
@@ -321,7 +325,7 @@ export function toNaturalTalk(
     const killer = killerM?.[1];
     return finishSentence(
       bro
-        ? `When you spawn, buy with that ${gold} gold first${killer ? `, respect ${killer},` : ","} take a different path, and clear the nearest wave before you force anything`
+        ? `Spawn buy with that ${gold} gold first${killer ? `, respect ${killer},` : ","} different path, grab the wave — don't force anything`
         : `When you come back, spend the ${gold} gold on your item first${killer ? `, respect ${killer} on the way out,` : ","} and take the nearest wave before you rejoin a fight`
     );
   }
@@ -367,7 +371,7 @@ export function toNaturalTalk(
   if (m) {
     return finishSentence(
       bro
-        ? `Peel your carry right now — ${m[1]} is the delete threat`
+        ? `Peel your carry right now — ${m[1]} is the delete button`
         : `Peel for your carry. ${m[1]} is the threat that can delete them`
     );
   }
@@ -411,7 +415,7 @@ export function toNaturalTalk(
     }
     return finishSentence(
       bro
-        ? `You just hit ${m[1]} — look for ${combo} when they waste a spell`
+        ? `You just hit ${m[1]} — look for ${combo} when they waste a spell fr`
         : `You just hit level ${m[1]}. Look for ${combo} when they burn a key spell`
     );
   }

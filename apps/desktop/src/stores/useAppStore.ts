@@ -436,12 +436,16 @@ function speakIfEnabled(
   const now = Date.now();
   const urgent = opts?.force || (kind === "callout" && isUrgentKind(calloutKind || ""));
 
-  // One coach only: never stack a second line unless truly urgent
-  if (!urgent && now < coachVoiceLockedUntil) {
-    console.info("[voice] skipped — coach voice still locked", kind, calloutKind);
+  // Never start a new callout while audio is still playing — finish first.
+  if (kind === "callout" && isVoiceBusy()) {
+    console.info("[voice] skipped — still speaking previous callout", calloutKind);
     return false;
   }
-  // Soft gap even after lock — stops machine-gun tips
+  if (kind === "callout" && now < coachVoiceLockedUntil) {
+    console.info("[voice] skipped — coach voice still locked", calloutKind);
+    return false;
+  }
+  // Soft gap after a tip fully ends — stops machine-gun when idle
   if (!urgent && kind === "callout" && now - lastSpokenAt < 4_500) {
     console.info("[voice] skipped — too soon after last tip");
     return false;
@@ -476,12 +480,16 @@ function speakIfEnabled(
     lastSpokenTips = [text, ...lastSpokenTips].slice(0, 18);
   }
 
-  // Lock for line duration only — one voice at a time (interrupt replaces prior)
+  // Estimate duration; if something is already talking, extend the lock so the
+  // next poll waits for THIS line too (finish current → then queued).
   const words = text.trim().split(/\s+/).length;
   const estMs = urgent
-    ? Math.min(7_000, Math.max(2_200, words * 280 + 800))
-    : Math.min(8_500, Math.max(3_200, words * 300 + 1_000));
-  coachVoiceLockedUntil = now + estMs;
+    ? Math.min(9_000, Math.max(2_400, words * 300 + 900))
+    : Math.min(11_000, Math.max(3_500, words * 320 + 1_200));
+  const baseLock = isVoiceBusy()
+    ? Math.max(coachVoiceLockedUntil, now) + estMs
+    : now + estMs;
+  coachVoiceLockedUntil = baseLock;
   lastSpokenAt = now;
 
   const base = st.voicePrefs;
@@ -492,13 +500,14 @@ function speakIfEnabled(
   // Bro talks longer natural sentences; friend callouts stay snappier
   const maxChars = broMode
     ? isLiveCallout
-      ? 280
-      : 420
+      ? 320
+      : 480
     : isLiveCallout
       ? 170
       : 220;
   speakText(text, {
-    interrupt: true, // always single-slot: stop prior line, never dual TTS
+    // Never cut the current callout — queue behind it
+    interrupt: false,
     rate: Math.min(1.12, base.rate + (isLiveCallout && !broMode ? 0.04 : 0)),
     pitch: base.pitch,
     volume: clampVoiceVolume(base.volume ?? DEFAULT_VOICE_PREFS.volume),
@@ -1147,11 +1156,15 @@ export const useAppStore = create<AppState>((set, get) => ({
             isUrgentKind(signal.kind) ||
             signal.severity === "urgent" ||
             (fromInsight && signal.severity === "warn");
-          const gapOk = Date.now() - lastSpokenAt >= MIN_SPEAK_GAP_MS || isUrgent;
-          // isVoiceBusy() self-heals hung TTS; if still busy only soft-block non-urgent
           const busy = isVoiceBusy();
           const locked = Date.now() < coachVoiceLockedUntil;
-          const voiceFree = isUrgent || (!locked && !busy);
+          // Finish the current callout before starting the next — even for urgent.
+          // Urgent tips queue after speech ends; they must not cut mid-sentence.
+          const gapOk =
+            busy || locked
+              ? true // not a gap issue while speaking; blocked by voiceFree
+              : Date.now() - lastSpokenAt >= MIN_SPEAK_GAP_MS || isUrgent;
+          const voiceFree = !locked && !busy;
 
           // Permanent reject (budget) — mark processed
           if (!willSpeak) {

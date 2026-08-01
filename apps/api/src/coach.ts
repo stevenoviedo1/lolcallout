@@ -285,20 +285,20 @@ export async function* streamCoachReply(
                 : 240
               : 400;
 
-  // Lower temp on hard decisions; slightly higher for bro chat flavor
+  // Bro needs a bit more temperature so it sounds human/casual, not scripted
   const temperature =
     req.intent === "summary"
       ? 0.35
       : req.intent === "callout"
         ? bro
-          ? 0.5
+          ? 0.62
           : 0.3
         : isLiveCue
           ? bro
-            ? 0.4
+            ? 0.55
             : 0.25
           : bro
-            ? 0.5
+            ? 0.58
             : 0.35;
 
   const cfg = coachModelConfig(req.intent);
@@ -351,7 +351,7 @@ export function coachAiStatus() {
       "match_memory",
       "post_game",
     ] as const,
-    appDesktopTarget: "0.5.9",
+    appDesktopTarget: "0.5.10",
     membershipRequiredForAi: true,
   };
 }

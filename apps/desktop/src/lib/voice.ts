@@ -748,9 +748,18 @@ function hardStopAudioOnly() {
   }
 }
 
+/** Lines currently playing + waiting (for “don’t cut mid-callout” logic). */
+export function voicePipelineDepth(): number {
+  return (speaking ? 1 : 0) + speakQueue.length;
+}
+
 export function speakText(
   text: string,
   opts?: {
+    /**
+     * true  = cut current audio and play this now (Test / user stop only).
+     * false = wait for the current callout to finish, then play (default for coach).
+     */
     interrupt?: boolean;
     rate?: number;
     pitch?: number;
@@ -778,10 +787,25 @@ export function speakText(
 
   prefs.volume = clampVoiceVolume(prefs.volume ?? DEFAULT_VOICE_PREFS.volume);
 
-  // Always single-slot for coach: replace any pending/playing line
-  const interrupt = opts?.interrupt !== false;
+  // Default: never cut mid-sentence. Only Test / explicit interrupt stops current audio.
+  const interrupt = opts?.interrupt === true;
   if (interrupt) {
     stopSpeaking();
+    speakQueue = [{ text: spoken, prefs }];
+    void pumpQueue();
+    return;
+  }
+
+  // Queue behind whatever is playing. Keep at most one pending tip so we don't
+  // stack five outdated lines — fresher tip replaces the next slot only.
+  if (speaking || speakQueue.length > 0) {
+    if (speakQueue.length >= 1) {
+      speakQueue[speakQueue.length - 1] = { text: spoken, prefs };
+    } else {
+      speakQueue.push({ text: spoken, prefs });
+    }
+    if (!speaking) void pumpQueue();
+    return;
   }
 
   speakQueue = [{ text: spoken, prefs }];
