@@ -504,14 +504,30 @@ async function createWindow() {
     },
   });
 
-  // Extra belt-and-suspenders for Chromium audio (some builds ignore webPreferences flag alone)
+  // Mic + audio for always-listen STT and coach TTS (stream-ready)
   try {
     mainWindow.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
-      if (permission === "media" || permission === "mediaKeySystem") {
+      if (
+        permission === "media" ||
+        permission === "mediaKeySystem" ||
+        permission === "microphone" ||
+        permission === "audioCapture"
+      ) {
         callback(true);
         return;
       }
       callback(true);
+    });
+    mainWindow.webContents.session.setPermissionCheckHandler((_wc, permission) => {
+      if (
+        permission === "media" ||
+        permission === "mediaKeySystem" ||
+        permission === "microphone" ||
+        permission === "audioCapture"
+      ) {
+        return true;
+      }
+      return true;
     });
   } catch {
     /* ignore older electron */

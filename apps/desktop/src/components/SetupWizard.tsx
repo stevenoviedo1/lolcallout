@@ -481,7 +481,10 @@ export function SetupWizard({
                 />
                 <span>
                   <strong>Always-listen mic</strong>
-                  <span className="muted"> — ask the coach hands-free (optional)</span>
+                  <span className="muted">
+                    {" "}
+                    — say “Coach …” then your question; friend chat is ignored
+                  </span>
                 </span>
               </label>
               <p className="muted setup-hint">

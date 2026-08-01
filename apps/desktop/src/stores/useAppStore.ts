@@ -76,7 +76,6 @@ import {
 import {
   DEFAULT_VOICE_PREFS,
   STYLE_PRESETS,
-  isVoiceBusy,
   applyLiveVolume,
   clampVoiceVolume,
   forceClearBusy,
@@ -84,6 +83,8 @@ import {
   getSpeechRecognitionCtor,
   interpretVoiceCommand,
   isAudioUnlocked,
+  isVoiceBusy,
+  onTtsActiveChange,
   onVoiceStatus,
   setVoicePrefs,
   speakText,
@@ -232,6 +233,12 @@ const processedSignals = new Set<string>();
 let recognition: SpeechRecognition | null = null;
 let wantContinuous = false;
 let restartTimer: number | undefined;
+/** Soft-pause mic while coach TTS plays (don't clear alwaysListen). */
+let micPausedForTts = false;
+let micKeepAliveTimer: number | undefined;
+let ttsMicHooked = false;
+/** Ignore duplicate restarts within a short window */
+let lastMicStartAt = 0;
 /** Per-match counters for cost control */
 let spokenThisGame = 0;
 let aiCalloutsThisGame = 0;
@@ -664,8 +671,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   setAlwaysListen: (alwaysListen) => {
     localStorage.setItem("rc_always_listen", alwaysListen ? "1" : "0");
     set({ alwaysListen });
-    if (alwaysListen) get().startVoice({ continuous: true });
-    else get().stopVoice();
+    if (alwaysListen) {
+      // Unlock audio from this click so later callouts + STT work on stream
+      void unlockAudio();
+      get().startVoice({ continuous: true });
+      set({
+        toast: "Always listen ON — say “Coach …” to talk to me. Friend chat is ignored.",
+      });
+      window.setTimeout(() => {
+        if (get().toast?.startsWith("Always listen")) set({ toast: null });
+      }, 4500);
+    } else {
+      get().stopVoice();
+    }
   },
   visionOnAsk: false,
   setVisionOnAsk: (visionOnAsk) => {
@@ -832,7 +850,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             id: "sys-1",
             role: "system",
             content:
-              "Coach online. Queue League — live callouts arm automatically when something is worth saying. One voice. Say “coach what now”, “item”, or “why did I die”.",
+              "Coach online. Live callouts arm in-game. Always-listen: say “Coach …” so I know you’re talking to me (friend chat is ignored). Examples: “Coach what now”, “Coach item”, “Coach why did I die”.",
             createdAt: new Date().toISOString(),
           },
         ],
@@ -1794,24 +1812,86 @@ export const useAppStore = create<AppState>((set, get) => ({
   startVoice: (opts) => {
     const SR = getSpeechRecognitionCtor();
     if (!SR) {
-      set({ error: "Speech recognition not supported. Use Chrome or Edge." });
+      set({
+        error:
+          "Speech recognition not supported in this build. Use the packaged LOLCallout app or Chrome/Edge.",
+      });
+      return;
+    }
+
+    // Soft pause while coach is talking — keep alwaysListen flag, just don't open the mic
+    if (micPausedForTts && (opts?.continuous || get().alwaysListen)) {
       return;
     }
 
     wantContinuous = Boolean(opts?.continuous || get().alwaysListen);
+    const requireWake = wantContinuous; // always-on = only "coach …" reaches the brain
+
+    // Debounce rapid restarts
+    if (Date.now() - lastMicStartAt < 400 && recognition && get().listening) {
+      return;
+    }
+    lastMicStartAt = Date.now();
 
     if (recognition) {
       try {
         recognition.onend = null;
-        recognition.stop();
+        recognition.onerror = null;
+        recognition.onresult = null;
+        recognition.abort();
       } catch {
-        /* ignore */
+        try {
+          recognition.stop();
+        } catch {
+          /* ignore */
+        }
       }
       recognition = null;
     }
     if (restartTimer) {
       window.clearTimeout(restartTimer);
       restartTimer = undefined;
+    }
+
+    // Hook once: pause mic while TTS plays so coach doesn't hear itself / cut friend chat
+    if (!ttsMicHooked) {
+      ttsMicHooked = true;
+      onTtsActiveChange((active) => {
+        if (!get().alwaysListen && !wantContinuous) return;
+        if (active) {
+          micPausedForTts = true;
+          try {
+            if (recognition) {
+              recognition.onend = null;
+              recognition.stop();
+            }
+          } catch {
+            /* ignore */
+          }
+          recognition = null;
+          set({ listening: false });
+        } else {
+          micPausedForTts = false;
+          // Brief delay so room noise / echo settles
+          window.setTimeout(() => {
+            if (!get().alwaysListen || micPausedForTts || isVoiceBusy()) return;
+            get().startVoice({ continuous: true });
+          }, 350);
+        }
+      });
+    }
+
+    // Keepalive: Chromium often kills continuous STT after silence
+    if (wantContinuous) {
+      if (micKeepAliveTimer) window.clearInterval(micKeepAliveTimer);
+      micKeepAliveTimer = window.setInterval(() => {
+        if (!get().alwaysListen || !wantContinuous) return;
+        if (micPausedForTts || isVoiceBusy()) return;
+        if (!get().listening || !recognition) {
+          console.info("[mic] keepalive restart");
+          get().startVoice({ continuous: true });
+        }
+      }, 2500);
     }
 
     const rec = new SR();
@@ -1822,7 +1902,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     rec.maxAlternatives = 1;
 
     rec.onresult = (ev: SpeechRecognitionEvent) => {
-      // Use latest final result
+      if (micPausedForTts || isVoiceBusy()) return;
+
       let transcript = "";
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         if (ev.results[i].isFinal) {
@@ -1835,77 +1916,150 @@ export const useAppStore = create<AppState>((set, get) => ({
       transcript = transcript.trim();
       if (!transcript) return;
 
-      // If busy answering, queue only short commands by ignoring during stream
       if (get().streaming) {
         set({ toast: `Heard (busy): ${transcript.slice(0, 40)}` });
         return;
       }
 
-      const cmd = interpretVoiceCommand(transcript);
-      if (!cmd) return;
+      if (!get().membershipActive) {
+        set({
+          toast: "AI coach offline — Founders required for voice asks",
+        });
+        return;
+      }
 
-      set({ toast: `Heard: ${cmd.text}` });
+      const cmd = interpretVoiceCommand(transcript, {
+        requireWakeWord: requireWake,
+      });
+      if (!cmd) {
+        // Friend chat / no wake word — stay quiet (no spam toasts on stream)
+        console.info("[mic] ignored (no coach wake word):", transcript.slice(0, 60));
+        return;
+      }
+
+      set({
+        toast: cmd.heardWake
+          ? `Coach ← ${cmd.text}`
+          : `Heard: ${cmd.text}`,
+      });
+      window.setTimeout(() => {
+        if (get().toast?.startsWith("Coach ←") || get().toast?.startsWith("Heard:")) {
+          set({ toast: null });
+        }
+      }, 2800);
       void get().sendMessage(cmd.text, cmd.intent);
     };
 
     rec.onerror = (ev: Event) => {
       const err = (ev as { error?: string }).error;
-      // continuous mode: ignore no-speech / aborted
-      if (err === "no-speech" || err === "aborted") return;
-      if (err === "not-allowed") {
+      // continuous mode: ignore no-speech / aborted / while TTS paused us
+      if (err === "no-speech" || err === "aborted" || micPausedForTts) return;
+      if (err === "not-allowed" || err === "service-not-allowed") {
         set({
           listening: false,
           alwaysListen: false,
-          error: "Mic permission denied. Allow microphone for this site.",
+          error:
+            "Mic permission denied. Allow microphone for LOLCallout, then click 🎙 again.",
         });
         wantContinuous = false;
+        localStorage.setItem("rc_always_listen", "0");
+        return;
+      }
+      // network / audio-capture — try restart in always-on
+      if (wantContinuous && get().alwaysListen && !micPausedForTts) {
+        restartTimer = window.setTimeout(() => {
+          if (get().alwaysListen && !micPausedForTts) {
+            get().startVoice({ continuous: true });
+          }
+        }, 600);
         return;
       }
       if (!wantContinuous) set({ listening: false });
     };
 
     rec.onend = () => {
+      if (micPausedForTts) {
+        set({ listening: false });
+        return;
+      }
       if (wantContinuous && get().alwaysListen) {
         // Browser stops after pauses — auto-restart
         restartTimer = window.setTimeout(() => {
-          if (!wantContinuous || !get().alwaysListen) return;
+          if (!wantContinuous || !get().alwaysListen || micPausedForTts) return;
           try {
-            recognition?.start();
-            set({ listening: true });
+            if (recognition === rec) {
+              rec.start();
+              set({ listening: true });
+            } else {
+              get().startVoice({ continuous: true });
+            }
           } catch {
-            // Already started
+            // Already started or dead — full restart
+            try {
+              get().startVoice({ continuous: true });
+            } catch {
+              /* ignore */
+            }
           }
-        }, 250);
+        }, 280);
         return;
       }
       set({ listening: false });
-      recognition = null;
+      if (recognition === rec) recognition = null;
     };
 
     try {
       rec.start();
-      set({ listening: true, error: null, toast: wantContinuous ? "Always listen ON" : "Listening…" });
+      set({
+        listening: true,
+        error: null,
+        toast: wantContinuous
+          ? "Always listen ON — say “Coach what now”"
+          : "Listening… (push to talk)",
+      });
+      if (!wantContinuous) {
+        window.setTimeout(() => {
+          if (get().toast === "Listening… (push to talk)") set({ toast: null });
+        }, 2000);
+      }
     } catch (e) {
       set({
         listening: false,
         error: e instanceof Error ? e.message : "Could not start mic",
       });
+      // Retry once for continuous
+      if (wantContinuous && get().alwaysListen) {
+        restartTimer = window.setTimeout(() => {
+          if (get().alwaysListen) get().startVoice({ continuous: true });
+        }, 800);
+      }
     }
   },
 
   stopVoice: () => {
     wantContinuous = false;
+    micPausedForTts = false;
     if (restartTimer) {
       window.clearTimeout(restartTimer);
       restartTimer = undefined;
     }
+    if (micKeepAliveTimer) {
+      window.clearInterval(micKeepAliveTimer);
+      micKeepAliveTimer = undefined;
+    }
     try {
       if (recognition) {
         recognition.onend = null;
-        recognition.stop();
+        recognition.onerror = null;
+        recognition.onresult = null;
+        recognition.abort();
       }
     } catch {
-      /* ignore */
+      try {
+        recognition?.stop();
+      } catch {
+        /* ignore */
+      }
     }
     recognition = null;
     set({ listening: false, alwaysListen: false, toast: null });

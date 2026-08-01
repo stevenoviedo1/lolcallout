@@ -148,6 +148,32 @@ export function isVoiceBusy(): boolean {
   return speaking || speakQueue.length > 0;
 }
 
+/** Listeners: mic should pause while coach TTS plays (avoid hearing itself). */
+type TtsActiveListener = (active: boolean) => void;
+const ttsActiveListeners = new Set<TtsActiveListener>();
+let lastTtsActive = false;
+
+export function onTtsActiveChange(fn: TtsActiveListener): () => void {
+  ttsActiveListeners.add(fn);
+  return () => ttsActiveListeners.delete(fn);
+}
+
+function notifyTtsActive(active: boolean) {
+  if (lastTtsActive === active) return;
+  lastTtsActive = active;
+  for (const fn of ttsActiveListeners) {
+    try {
+      fn(active);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+export function isTtsActive(): boolean {
+  return lastTtsActive;
+}
+
 /** How long the current line has been in-flight (0 if idle) */
 export function voiceBusyMs(): number {
   if (!speaking || !speakingSince) return 0;
@@ -189,6 +215,7 @@ export function forceClearBusy(errorMsg?: string) {
   }
   activeTtsAbort = null;
   hardStopAudioOnly();
+  notifyTtsActive(false);
   if (errorMsg) setVoiceError(errorMsg);
 }
 
@@ -654,9 +681,13 @@ async function playBrowserTts(
 async function pumpQueue() {
   if (speaking) return;
   const next = speakQueue.shift();
-  if (!next) return;
+  if (!next) {
+    notifyTtsActive(false);
+    return;
+  }
   speaking = true;
   speakingSince = Date.now();
+  notifyTtsActive(true);
   const generation = speakGeneration;
   const { text, prefs } = next;
   currentPrefs = { ...prefs };
@@ -716,8 +747,11 @@ async function pumpQueue() {
       clearUtteranceWatchdog();
       speaking = false;
       speakingSince = 0;
-      await new Promise((r) => setTimeout(r, 80));
-      if (generation === speakGeneration) void pumpQueue();
+      await new Promise((r) => setTimeout(r, 120));
+      if (generation === speakGeneration) {
+        if (speakQueue.length === 0) notifyTtsActive(false);
+        void pumpQueue();
+      }
     }
   }
 }
@@ -826,6 +860,7 @@ export function stopSpeaking() {
   }
   activeTtsAbort = null;
   hardStopAudioOnly();
+  notifyTtsActive(false);
 }
 
 /** Live-adjust volume while something is playing (Natural/xAI path) */
@@ -877,39 +912,92 @@ export async function fetchTtsStatus(): Promise<{
   }
 }
 
-/** Map rough voice commands to chips / free text */
-export function interpretVoiceCommand(raw: string): {
+/**
+ * Map spoken text → coach command.
+ *
+ * Always-listen mode uses requireWakeWord: only process lines that address the
+ * coach ("coach …", "hey coach …"). Everything else is treated as friend chat.
+ * Push-to-talk (mic button) accepts free-form without a wake word.
+ */
+export function interpretVoiceCommand(
+  raw: string,
+  opts?: { requireWakeWord?: boolean }
+): {
   text: string;
   intent?: "what_now" | "item" | "roam" | "objective" | "why_die" | "free";
+  heardWake: boolean;
 } | null {
   const t = raw.trim();
   if (!t || t.length < 2) return null;
 
-  const lower = t.toLowerCase().replace(/[^\w\s']/g, " ").replace(/\s+/g, " ").trim();
-  if (lower.length < 3) return null;
+  const lower = t
+    .toLowerCase()
+    .replace(/[^\w\s']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (lower.length < 2) return null;
 
+  // Wake words: coach / hey coach / ok coach / lolcallout
+  const leadingWake =
+    /^(hey |ok |okay |yo |hi )?coach\b[,!.\s]*/i;
+  const brandWake =
+    /^(hey |ok |okay |yo )?(lol\s*call\s*out|lolcallout|rift\s*coach)\b[,!.\s]*/i;
   let body = lower;
-  const wake = /^(hey )?coach[, ]+|^(hey )?rift[, ]+|^ok coach[, ]+/i;
-  if (wake.test(body)) {
-    body = body.replace(wake, "").trim();
-  }
-  if (!body) return null;
+  let heardWake = false;
 
-  if (/^(what now|what do i do|help|call|status|next)$/i.test(body) || body.includes("what now")) {
-    return { text: "What now?", intent: "what_now" };
-  }
-  if (/\b(item|buy|shop|build)\b/i.test(body)) {
-    return { text: body, intent: "item" };
-  }
-  if (/\b(roam|gank|leave lane)\b/i.test(body)) {
-    return { text: body, intent: "roam" };
-  }
-  if (/\b(dragon|baron|herald|objective|obj)\b/i.test(body)) {
-    return { text: body, intent: "objective" };
-  }
-  if (/\b(why.*(die|died)|death review|how did i die)\b/i.test(body)) {
-    return { text: "Why did I die?", intent: "why_die" };
+  if (leadingWake.test(body)) {
+    heardWake = true;
+    body = body.replace(leadingWake, "").trim();
+  } else if (brandWake.test(body)) {
+    heardWake = true;
+    body = body.replace(brandWake, "").trim();
+  } else if (/\bcoach\b/i.test(body)) {
+    // Mid/trailing: "what should I do coach" / "uh coach item"
+    heardWake = true;
+    body = body
+      .replace(/\b(hey |ok |okay |yo )?coach\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  } else if (/\b(lol\s*call\s*out|lolcallout)\b/i.test(body)) {
+    heardWake = true;
+    body = body
+      .replace(/\b(hey |ok |okay |yo )?(lol\s*call\s*out|lolcallout)\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
   }
 
-  return { text: t, intent: "free" };
+  // Always-on: ignore friend talk (no wake word)
+  if (opts?.requireWakeWord && !heardWake) {
+    return null;
+  }
+
+  // Just "coach" / "hey coach" → default ask
+  if (!body || body.length < 2) {
+    return { text: "What now?", intent: "what_now", heardWake };
+  }
+
+  if (
+    /^(what now|what do i do|help|call|status|next|go|play)$/i.test(body) ||
+    /\bwhat now\b/i.test(body) ||
+    /\bwhat do i do\b/i.test(body) ||
+    /\bwhat should i do\b/i.test(body)
+  ) {
+    return { text: "What now?", intent: "what_now", heardWake };
+  }
+  if (/\b(item|buy|shop|build|backs?)\b/i.test(body)) {
+    return { text: body, intent: "item", heardWake };
+  }
+  if (/\b(roam|gank|leave lane|move)\b/i.test(body)) {
+    return { text: body, intent: "roam", heardWake };
+  }
+  if (/\b(dragon|baron|herald|objective|obj|grubs?|void grubs?)\b/i.test(body)) {
+    return { text: body, intent: "objective", heardWake };
+  }
+  if (/\b(why.*(die|died)|death review|how did i die|what happened)\b/i.test(body)) {
+    return { text: "Why did I die?", intent: "why_die", heardWake };
+  }
+
+  // Prefer cleaned body (wake stripped) as the free-text question
+  const spoken = body.length >= 2 ? body : t;
+  return { text: spoken, intent: "free", heardWake };
 }

@@ -11,6 +11,7 @@ import {
   VOICE_VOLUME_MAX,
   VOICE_VOLUME_MIN,
   XAI_VOICES,
+  unlockAudio,
   volumePercentLabel,
   type TtsEngine,
   type VoiceStyle,
@@ -60,6 +61,7 @@ export default function App({
     testVoiceOver,
     voiceError,
     alwaysListen,
+    setAlwaysListen,
     visionOnAsk,
     setVisionOnAsk,
     listening,
@@ -287,10 +289,17 @@ export default function App({
           <button
             type="button"
             className={`chip ${alwaysListen || listening ? "chip-on" : ""}`}
-            title="Ctrl+Shift+L"
-            onClick={() => toggleAlwaysListen()}
+            title={
+              alwaysListen
+                ? "Always listen ON — say “Coach …” then your question. Friend chat ignored. (Ctrl+Shift+L)"
+                : "Always listen OFF — click to enable hands-free. Say “Coach what now”. (Ctrl+Shift+L)"
+            }
+            onClick={() => {
+              void unlockAudio();
+              toggleAlwaysListen();
+            }}
           >
-            {alwaysListen ? "🎙 LIVE" : "🎙"}
+            {alwaysListen ? (listening ? "🎙 Coach" : "🎙 …") : "🎙"}
           </button>
           <button
             type="button"
@@ -485,6 +494,8 @@ export default function App({
               <p className="panel-title">Hotkeys</p>
               <p className="muted small" style={{ margin: 0 }}>
                 <kbd>Ctrl+Shift+C</kbd> What now
+                <br />
+                <kbd>Ctrl+Shift+L</kbd> Always listen
                 <br />
                 <kbd>Ctrl+Shift+M</kbd> Voice
                 <br />
@@ -981,6 +992,22 @@ export default function App({
               />
               Coach voice ON
             </label>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={alwaysListen}
+                onChange={(e) => {
+                  void unlockAudio();
+                  setAlwaysListen(e.target.checked);
+                }}
+              />
+              Always-listen mic
+            </label>
+            <p className="muted" style={{ marginTop: 0 }}>
+              Hands-free: say <strong>Coach</strong> then your question (e.g. “Coach what now”,
+              “Coach item”). Talk to a friend without “Coach” and I stay quiet. Mic pauses while
+              the coach is speaking so it doesn’t hear itself.
+            </p>
 
             <div className="voice-controls">
               <p className="settings-sub" style={{ marginTop: 4 }}>
