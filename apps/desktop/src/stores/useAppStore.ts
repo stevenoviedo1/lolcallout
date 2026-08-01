@@ -710,6 +710,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   })(),
   requestChampSelectPlan: async () => {
+    if (!get().membershipActive) {
+      set({
+        error:
+          "AI coach is offline. Founders subscription required for champ plans.",
+        toast: "AI coach offline — Founders required",
+      });
+      return;
+    }
     const cs = get().champSelect;
     const brief = buildLockInBrief({
       myChampion: cs?.myChampion,
@@ -1116,7 +1124,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         // Keep sessionLearningObjective until finishGame saves block LO
       }
 
-      if (calloutsEnabled && !calloutBusy && nowInGame && !status.mock) {
+      // AI coach (callouts + cloud voice) requires Founders/Pro membership.
+      // Free accounts can sign in and see the live board only.
+      if (
+        calloutsEnabled &&
+        !calloutBusy &&
+        nowInGame &&
+        !status.mock &&
+        get().membershipActive
+      ) {
         const signals = [...(status.signals || [])]
           .filter((s) => !processedSignals.has(s.id))
           .sort((a, b) => coachPriority(b.kind) - coachPriority(a.kind));
@@ -1375,8 +1391,8 @@ export const useAppStore = create<AppState>((set, get) => ({
                   } catch (e) {
                     if (e instanceof MembershipRequiredError) {
                       set({
-                        toast:
-                          "Membership required for AI callouts — upgrade on lolcallout.com",
+                        membershipActive: false,
+                        toast: "AI coach offline — Founders subscription required",
                       });
                     }
                   }
@@ -1393,7 +1409,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                   releaseBusy();
                 })();
               } else {
-                // Free / no AI: local only, one voice
+                // Paid member, non-AI signal: local seed only (one voice)
                 const spoke = speakIfEnabled(fallback, "callout", signal.kind, {
                   force: isUrgent,
                 });
@@ -1421,8 +1437,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!get().membershipActive) {
       set({
         error:
-          "AI coach needs a membership. Buy Founders/Pro on lolcallout.com with this email, then sign in again.",
-        toast: "Membership required for AI coaching",
+          "AI coach is offline. Founders subscription required — buy on lolcallout.com with this email, then Refresh plan.",
+        toast: "AI coach offline — Founders required",
       });
       return;
     }
@@ -1522,7 +1538,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           membershipActive: false,
           streaming: false,
           error: e.message,
-          toast: "Membership required — upgrade at lolcallout.com",
+          toast: "AI coach offline — Founders subscription required",
         });
         return;
       }

@@ -188,6 +188,81 @@ button {
   flex-shrink: 0;
 }
 
+.auth-dot-off {
+  background: var(--faint, #6b7280);
+  box-shadow: none;
+}
+
+.auth-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.chip-signout {
+  border-color: rgba(248, 113, 113, 0.35) !important;
+  color: #fca5a5 !important;
+  background: rgba(248, 113, 113, 0.08) !important;
+}
+
+.chip-signout:hover {
+  background: rgba(248, 113, 113, 0.16) !important;
+  color: #fecaca !important;
+}
+
+.status-pill.is-coach-on {
+  border-color: rgba(52, 211, 153, 0.35);
+}
+
+.status-pill.is-coach-off {
+  border-color: rgba(232, 168, 56, 0.4);
+  color: #f0c674;
+}
+
+.account-status-card {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.composer-offline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(232, 168, 56, 0.35);
+  background: rgba(232, 168, 56, 0.1);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.composer-offline strong {
+  color: #f0c674;
+}
+
+.composer-offline span {
+  color: var(--muted);
+  flex: 1 1 160px;
+}
+
+.chip-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 .plan-pill {
   display: inline-flex;
   align-items: center;

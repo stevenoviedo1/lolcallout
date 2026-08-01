@@ -126,48 +126,64 @@ export function Root() {
   }
 
   const paid = Boolean(user.hasAccess);
+  const planLabel =
+    user.plan === "founders"
+      ? "Founders"
+      : user.plan === "pro"
+        ? "Pro"
+        : "Free";
 
   return (
     <>
       <UpdateBanner />
       <div className="auth-strip">
         <span className="auth-user">
-          <span className="auth-dot" aria-hidden />
+          <span
+            className={`auth-dot ${paid ? "" : "auth-dot-off"}`}
+            aria-hidden
+          />
           {user.email}
-          {paid && (
+          {paid ? (
             <span className="plan-pill">
-              {user.plan}
+              {planLabel} · AI ready
               {user.accessUntil
                 ? ` · ${new Date(user.accessUntil).toLocaleDateString()}`
                 : ""}
             </span>
+          ) : (
+            <span className="plan-pill free">AI coach offline</span>
           )}
-          {!paid && <span className="plan-pill free">free · no AI</span>}
         </span>
-        {!paid && (
-          <button type="button" className="chip chip-primary" onClick={() => void upgrade()}>
-            Unlock AI coach
-          </button>
-        )}
-        {paid && (
+        <span className="auth-actions">
+          {!paid && (
+            <button type="button" className="chip chip-primary" onClick={() => void upgrade()}>
+              Get Founders
+            </button>
+          )}
+          {paid && (
+            <button
+              type="button"
+              className="chip chip-ghost"
+              title="Refresh membership after purchase"
+              onClick={() => void refresh()}
+            >
+              Refresh plan
+            </button>
+          )}
           <button
             type="button"
-            className="chip chip-ghost"
-            title="Refresh membership after purchase"
-            onClick={() => void refresh()}
+            className="chip chip-signout"
+            onClick={() => void handleLogout()}
           >
-            Refresh plan
+            Sign out
           </button>
-        )}
-        <button type="button" className="chip chip-ghost" onClick={() => void handleLogout()}>
-          Sign out
-        </button>
+        </span>
       </div>
       {!paid && (
         <div className="membership-banner" role="status">
-          <strong>Signed in free.</strong> Live board + local tips work.{" "}
-          <strong>AI coach, cloud voice, and post-game AI need membership</strong> (same email
-          as checkout on lolcallout.com).
+          <strong>AI coach offline.</strong> You’re signed in, but coaching, cloud voice, and
+          post-game AI need a <strong>Founders</strong> subscription (same email as checkout).
+          Live board still works.
           <button type="button" className="chip chip-primary" onClick={() => void upgrade()}>
             Get Founders
           </button>
@@ -176,7 +192,13 @@ export function Root() {
           </button>
         </div>
       )}
-      <App membershipActive={paid} onUpgrade={() => void upgrade()} />
+      <App
+        membershipActive={paid}
+        membershipPlan={user.plan}
+        accountEmail={user.email}
+        onUpgrade={() => void upgrade()}
+        onSignOut={() => void handleLogout()}
+      />
     </>
   );
 }

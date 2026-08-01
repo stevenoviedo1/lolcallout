@@ -99,7 +99,7 @@ export function requireAccess(req: AuthedRequest, res: Response, next: NextFunct
   if (!userHasAccess(req.user)) {
     res.status(402).json({
       error:
-        "Membership required for AI coaching. Buy Founders or Pro on lolcallout.com with this email, then sign in again.",
+        "AI coach is offline. A Founders subscription is required. Buy on lolcallout.com with this email, then refresh your plan.",
       code: "MEMBERSHIP_REQUIRED",
       plan: req.user.plan,
       accessUntil: req.user.accessUntil,

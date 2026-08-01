@@ -2,10 +2,23 @@
 User-agent: *
 Allow: /
 
-# Legal / product pages
-Allow: /terms.html
-Allow: /privacy.html
-Allow: /compliance.html
+# Product & legal (clean URLs)
+Allow: /compliance
+Allow: /terms
+Allow: /privacy
+Allow: /guides
+Allow: /guides/
+
+# Brand assets for Google Search favicon / logo
+Allow: /logo-circle.png
+Allow: /favicon-48.png
+Allow: /favicon-96.png
+Allow: /favicon-192.png
+Allow: /favicon-32.png
+Allow: /apple-touch-icon.png
+Allow: /site.webmanifest
+
+# Skip internal screenshot mock pages
+Disallow: /shots/
 
 Sitemap: https://lolcallout.com/sitemap.xml
-Host: https://lolcallout.com

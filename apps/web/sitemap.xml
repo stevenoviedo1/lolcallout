@@ -1,27 +1,62 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
     <loc>https://lolcallout.com/</loc>
-    <lastmod>2026-07-28</lastmod>
+    <lastmod>2026-07-30</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
+    <image:image>
+      <image:loc>https://lolcallout.com/logo-circle.png</image:loc>
+      <image:title>LOLCallout circle logo</image:title>
+      <image:caption>LOLCallout brand mark — live AI League of Legends coach</image:caption>
+    </image:image>
+    <image:image>
+      <image:loc>https://lolcallout.com/app-live.png</image:loc>
+      <image:title>LOLCallout live coach UI</image:title>
+      <image:caption>Live AI coach HUD with voice callouts for League of Legends</image:caption>
+    </image:image>
   </url>
   <url>
-    <loc>https://lolcallout.com/terms.html</loc>
-    <lastmod>2026-07-28</lastmod>
+    <loc>https://lolcallout.com/compliance</loc>
+    <lastmod>2026-07-30</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://lolcallout.com/terms</loc>
+    <lastmod>2026-07-30</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
-    <loc>https://lolcallout.com/privacy.html</loc>
-    <lastmod>2026-07-28</lastmod>
+    <loc>https://lolcallout.com/privacy</loc>
+    <lastmod>2026-07-30</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
-    <loc>https://lolcallout.com/compliance.html</loc>
-    <lastmod>2026-07-28</lastmod>
+    <loc>https://lolcallout.com/guides</loc>
+    <lastmod>2026-07-30</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://lolcallout.com/guides/live-ai-league-coach</loc>
+    <lastmod>2026-07-30</lastmod>
     <changefreq>monthly</changefreq>
-    <priority>0.4</priority>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://lolcallout.com/guides/friend-vs-hype-coach</loc>
+    <lastmod>2026-07-30</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://lolcallout.com/guides/clean-companion</loc>
+    <lastmod>2026-07-30</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
   </url>
 </urlset>

@@ -7,8 +7,21 @@ Standalone desktop uses **one global account API**. There is no local account au
 1. **Create account** — email + password (8+, letter + number)
 2. **Sign in** — same email/password on any PC worldwide
 3. **Remember me** — saves email + long session token (never the password)
-4. **Change password** — Settings → Account
-5. Website is **marketing / Stripe checkout only** — not required for day-to-day coach use
+4. **Sign out** — top bar, auth strip, or Settings → Account (clears session token)
+5. **Change password** — Settings → Account
+6. Website is **marketing / Stripe checkout only** — not required for day-to-day coach use
+
+## AI coach access (worldwide product rule)
+
+| Account | Sign in | Live board | AI coach / callouts / chat / cloud TTS |
+|--------|---------|------------|----------------------------------------|
+| Free | Yes | Yes | **Offline** |
+| Founders or Pro (active `accessUntil`) | Yes | Yes | **Ready** |
+
+- Free users can always create an account and sign in.
+- Cloud AI routes return **402** without a paid Founders/Pro plan.
+- Desktop UI shows **AI offline** and blocks coach actions until membership is active.
+- After Stripe checkout, use **Refresh plan** (or sign out / sign in) with the **same email**.
 
 ## Server persistence (Railway — required)
 

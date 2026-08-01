@@ -21,10 +21,16 @@ import { resetCoachVoice, setLayoutPersisted, useAppStore } from "./stores/useAp
 
 export default function App({
   membershipActive = false,
+  membershipPlan = "free",
+  accountEmail = "",
   onUpgrade,
+  onSignOut,
 }: {
   membershipActive?: boolean;
+  membershipPlan?: "free" | "founders" | "pro";
+  accountEmail?: string;
   onUpgrade?: () => void;
+  onSignOut?: () => void;
 } = {}) {
   const {
     nav,
@@ -176,7 +182,13 @@ export default function App({
     [messages]
   );
 
-  const canSend = !streaming && Boolean(sessionId);
+  const canSend = membershipActive && !streaming && Boolean(sessionId);
+  const planLabel =
+    membershipPlan === "founders"
+      ? "Founders"
+      : membershipPlan === "pro"
+        ? "Pro"
+        : "Free";
 
   return (
     <div className={`app layout-${layout}`}>
@@ -219,9 +231,30 @@ export default function App({
               </>
             )}
           </div>
+          <div
+            className={`status-pill ${membershipActive ? "is-coach-on" : "is-coach-off"}`}
+            title={
+              membershipActive
+                ? "Founders AI coach is ready"
+                : "Sign-in only — AI coach requires Founders"
+            }
+          >
+            <span className={`dot ${membershipActive ? "live" : "idle"}`} />
+            <span>{membershipActive ? "AI ready" : "AI offline"}</span>
+          </div>
         </div>
 
         <div className="topbar-right">
+          {onSignOut && (
+            <button
+              type="button"
+              className="chip chip-signout"
+              title="Sign out of this account"
+              onClick={() => onSignOut()}
+            >
+              Sign out
+            </button>
+          )}
           <button
             type="button"
             className={`chip ${voiceOverEnabled ? "chip-on" : ""}`}
@@ -726,6 +759,47 @@ export default function App({
               Your account is stored in the cloud — same email/password on every PC. No website
               login required.
             </p>
+            <div className="account-status-card">
+              <p style={{ margin: "0 0 6px" }}>
+                <strong>{accountEmail || "Signed in"}</strong>
+              </p>
+              <p className="muted" style={{ margin: "0 0 10px" }}>
+                Plan: <strong style={{ color: "var(--text)" }}>{planLabel}</strong>
+                {" · "}
+                AI coach:{" "}
+                <strong
+                  style={{
+                    color: membershipActive ? "var(--ok)" : "var(--warn, #f0c674)",
+                  }}
+                >
+                  {membershipActive ? "Ready" : "Offline"}
+                </strong>
+              </p>
+              {!membershipActive && (
+                <p className="muted" style={{ margin: "0 0 10px" }}>
+                  Free accounts can sign in and use the live board. AI coaching unlocks with a
+                  Founders subscription on lolcallout.com (same email).
+                </p>
+              )}
+              <div className="account-actions">
+                {!membershipActive && (
+                  <button
+                    type="button"
+                    className="chip chip-primary"
+                    onClick={() => onUpgrade?.()}
+                  >
+                    Get Founders
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="chip chip-signout"
+                  onClick={() => onSignOut?.()}
+                >
+                  Sign out
+                </button>
+              </div>
+            </div>
             <div className="settings-password">
               <label className="slider-label">
                 Current password
@@ -1055,10 +1129,21 @@ export default function App({
               <button
                 type="button"
                 className="chip chip-primary"
-                disabled={streaming}
-                onClick={() => void requestChampSelectPlan()}
+                disabled={streaming || !membershipActive}
+                title={
+                  membershipActive
+                    ? "Get a champ select plan"
+                    : "AI coach offline — Founders required"
+                }
+                onClick={() => {
+                  if (!membershipActive) {
+                    onUpgrade?.();
+                    return;
+                  }
+                  void requestChampSelectPlan();
+                }}
               >
-                Get plan
+                {membershipActive ? "Get plan" : "Unlock AI"}
               </button>
             </div>
           )}
@@ -1315,15 +1400,32 @@ export default function App({
       <footer className="composer">
         {error && <div className="err">{error}</div>}
 
+        {!membershipActive && (
+          <div className="composer-offline" role="status">
+            <strong>AI coach offline</strong>
+            <span>Founders subscription required to ask the coach or get live callouts.</span>
+            <button type="button" className="chip chip-primary" onClick={() => onUpgrade?.()}>
+              Get Founders
+            </button>
+          </div>
+        )}
+
         {compact ? (
           <div className="compact-actions">
             <button
               type="button"
               className="chip chip-primary"
               disabled={!canSend}
-              onClick={() => void sendChip("what_now", "What now?")}
+              title={membershipActive ? "What now?" : "AI coach offline"}
+              onClick={() => {
+                if (!membershipActive) {
+                  onUpgrade?.();
+                  return;
+                }
+                void sendChip("what_now", "What now?");
+              }}
             >
-              What now?
+              {membershipActive ? "What now?" : "Unlock AI"}
             </button>
             <button
               type="button"
@@ -1353,19 +1455,43 @@ export default function App({
                 type="button"
                 className={`chip ${c.id === "what_now" ? "chip-primary" : ""}`}
                 disabled={!canSend}
-                onClick={() => void sendChip(c.id, c.label)}
+                title={membershipActive ? c.label : "AI coach offline — Founders required"}
+                onClick={() => {
+                  if (!membershipActive) {
+                    onUpgrade?.();
+                    return;
+                  }
+                  void sendChip(c.id, c.label);
+                }}
               >
                 {c.label}
               </button>
             ))}
-            <button type="button" className="chip" disabled={streaming} onClick={() => void analyzeScreen()}>
+            <button
+              type="button"
+              className="chip"
+              disabled={!membershipActive || streaming}
+              onClick={() => {
+                if (!membershipActive) {
+                  onUpgrade?.();
+                  return;
+                }
+                void analyzeScreen();
+              }}
+            >
               Analyze screen
             </button>
             <button
               type="button"
               className="chip"
-              disabled={streaming}
-              onClick={() => void requestChampSelectPlan()}
+              disabled={!membershipActive || streaming}
+              onClick={() => {
+                if (!membershipActive) {
+                  onUpgrade?.();
+                  return;
+                }
+                void requestChampSelectPlan();
+              }}
             >
               Champ plan
             </button>
@@ -1376,14 +1502,23 @@ export default function App({
           className="compose-row"
           onSubmit={(e) => {
             e.preventDefault();
+            if (!membershipActive) {
+              onUpgrade?.();
+              return;
+            }
             void sendMessage(input);
           }}
         >
           <button
             type="button"
             className={`mic ${listening || alwaysListen ? "on" : ""}`}
-            title="Mic"
+            title={membershipActive ? "Mic" : "AI coach offline"}
+            disabled={!membershipActive}
             onClick={() => {
+              if (!membershipActive) {
+                onUpgrade?.();
+                return;
+              }
               if (alwaysListen || listening) stopVoice();
               else startVoice({ continuous: false });
             }}
@@ -1394,21 +1529,28 @@ export default function App({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={
-              isRealLive
-                ? `Ask coach… (${modeShort} · ${you?.championName || "you"})`
-                : "Ask the coach anything…"
+              !membershipActive
+                ? "AI coach offline — Founders required to chat…"
+                : isRealLive
+                  ? `Ask coach… (${modeShort} · ${you?.championName || "you"})`
+                  : "Ask the coach anything…"
             }
-            disabled={streaming}
+            disabled={streaming || !membershipActive}
             aria-label="Message coach"
           />
           {!compact && (
-            <label className="chip file-chip" title="Attach screenshot">
+            <label
+              className={`chip file-chip ${!membershipActive ? "chip-disabled" : ""}`}
+              title={membershipActive ? "Attach screenshot" : "AI coach offline"}
+            >
               📎
               <input
                 type="file"
                 accept="image/*"
                 hidden
+                disabled={!membershipActive}
                 onChange={(e) => {
+                  if (!membershipActive) return;
                   const file = e.target.files?.[0];
                   if (!file) return;
                   const reader = new FileReader();
@@ -1428,7 +1570,11 @@ export default function App({
               />
             </label>
           )}
-          <button className="send" type="submit" disabled={streaming || !input.trim()}>
+          <button
+            className="send"
+            type="submit"
+            disabled={streaming || !membershipActive || !input.trim()}
+          >
             Send
           </button>
         </form>

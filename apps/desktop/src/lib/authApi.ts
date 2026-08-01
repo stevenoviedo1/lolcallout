@@ -367,7 +367,9 @@ export async function logout(): Promise<void> {
       /* ignore */
     }
   }
+  // Always clear local session so the next screen is Login
   setStoredToken(null);
+  // Keep remembered email if "Remember me" was on; never keep the session token
   if (!getRememberMe()) {
     setRememberPreferences({ remember: false });
   }
