@@ -86,6 +86,9 @@ export default function App({
     goals,
     lastGrade,
     lastPostGame,
+    previousMatch,
+    livePane,
+    setLivePane,
     champSelect,
     deathReport,
     requestChampSelectPlan,
@@ -486,6 +489,29 @@ export default function App({
               {label}
             </button>
           ))}
+          {nav === "live" && (
+            <div className="live-pane-tabs" style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+              <p className="nav-label" style={{ margin: 0 }}>
+                Match
+              </p>
+              <button
+                type="button"
+                className={livePane === "current" ? "active" : ""}
+                onClick={() => setLivePane("current")}
+              >
+                This game
+              </button>
+              <button
+                type="button"
+                className={livePane === "previous" ? "active" : ""}
+                onClick={() => setLivePane("previous")}
+                disabled={!previousMatch}
+                title={previousMatch ? "Last finished match" : "No previous match yet"}
+              >
+                Previous{previousMatch ? ` · ${previousMatch.champion}` : ""}
+              </button>
+            </div>
+          )}
           <button type="button" className="chip" style={{ marginTop: 10 }} onClick={() => void newSession()}>
             New session
           </button>
@@ -609,12 +635,116 @@ export default function App({
 
         {showLive && (
           <div className="chat">
+            {!compact && (
+              <div className="style-row" style={{ marginBottom: 10, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className={`chip ${livePane === "current" ? "chip-on" : ""}`}
+                  onClick={() => setLivePane("current")}
+                >
+                  This game
+                </button>
+                <button
+                  type="button"
+                  className={`chip ${livePane === "previous" ? "chip-on" : ""}`}
+                  onClick={() => setLivePane("previous")}
+                  disabled={!previousMatch}
+                  title={previousMatch ? "Last finished match" : "Play a match first"}
+                >
+                  Previous{previousMatch ? ` · ${previousMatch.champion}` : ""}
+                </button>
+              </div>
+            )}
+
+            {livePane === "previous" && previousMatch ? (
+              <div className="previous-match-panel">
+                <div className="msg system">
+                  <div className="meta">Previous match</div>
+                  <strong>
+                    {previousMatch.champion} · {previousMatch.modeLabel} ·{" "}
+                    {previousMatch.scoreline}
+                  </strong>
+                  <div className="muted" style={{ marginTop: 4 }}>
+                    {new Date(previousMatch.endedAt).toLocaleString()}
+                    {previousMatch.gameTimeSec
+                      ? ` · ${Math.floor(previousMatch.gameTimeSec / 60)} min`
+                      : ""}
+                    {previousMatch.deathTotal
+                      ? ` · ${previousMatch.deathTotal} deaths`
+                      : ""}
+                  </div>
+                </div>
+                {previousMatch.grade && (
+                  <div className="summary-card grade-card">
+                    <div className="meta">
+                      Match grade
+                      {previousMatch.grade.modeLabel
+                        ? ` · ${previousMatch.grade.modeLabel}`
+                        : ""}
+                    </div>
+                    <strong className="grade-letter">{previousMatch.grade.letter}</strong>
+                    <span className="muted"> {previousMatch.grade.score}/100</span>
+                    <ul>
+                      {previousMatch.grade.goals.map((g) => (
+                        <li key={`${g.id}-${g.label}`}>
+                          {g.passed ? "✓" : "✗"} {g.detail}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="muted" style={{ marginBottom: 0 }}>
+                      {previousMatch.grade.habits.join(" · ")}
+                    </p>
+                  </div>
+                )}
+                {previousMatch.postGame && (
+                  <div className="summary-card postgame-report">
+                    <div className="meta">
+                      Memory report · {previousMatch.postGame.scoreline}
+                    </div>
+                    {previousMatch.postGame.habits[0] && (
+                      <p>
+                        <strong>Habit:</strong> {previousMatch.postGame.habits[0].label} x
+                        {previousMatch.postGame.habits[0].count} —{" "}
+                        {previousMatch.postGame.habits[0].fix}
+                      </p>
+                    )}
+                    <ul>
+                      {previousMatch.postGame.focusAreas.map((f, i) => (
+                        <li key={i}>{f}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <div className="msg system">
+                  <div className="meta">Summary</div>
+                  <pre
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      margin: 0,
+                      fontFamily: "inherit",
+                      fontSize: "0.92em",
+                    }}
+                  >
+                    {previousMatch.summaryText}
+                  </pre>
+                </div>
+                <button
+                  type="button"
+                  className="chip chip-primary"
+                  onClick={() => setLivePane("current")}
+                >
+                  Back to this game
+                </button>
+              </div>
+            ) : (
+              <>
             {!isRealLive && messages.length <= 2 && (
               <div className="waiting-banner">
                 <strong>Standing by</strong>
                 <p>
                   Queue League — status goes live and the coach guides automatically. Press{" "}
-                  <kbd>Ctrl+Shift+C</kbd> anytime for What now.
+                  <kbd>Ctrl+Shift+C</kbd> anytime for What now. Each new game starts a{" "}
+                  <strong>fresh board</strong>; open <strong>Previous</strong> for the last match.
                 </p>
               </div>
             )}
@@ -710,6 +840,8 @@ export default function App({
               </div>
             )}
             <div id="chat-end" />
+              </>
+            )}
           </div>
         )}
 

@@ -37,7 +37,16 @@ async function poll() {
   const live = await fetchLiveContext();
 
   if (live?.inGame) {
-    if (!wasInLiveGame) deathTracker.reset();
+    // New match without lobby gap: clock rewound hard while still "in game"
+    const newMatchMidstream =
+      wasInLiveGame &&
+      latest.inGame &&
+      (latest.gameTime || 0) > 90 &&
+      (live.gameTime || 0) < 50;
+    if (!wasInLiveGame || newMatchMidstream) {
+      deathTracker.reset();
+      detector.resetSoft();
+    }
     sawLiveGame = true;
     wasInLiveGame = true;
     const deathReport = deathTracker.ingest(live);

@@ -99,6 +99,20 @@ import {
 type NavId = "home" | "live" | "history" | "settings";
 type LayoutMode = "full" | "compact";
 
+/** Frozen snapshot so "Previous" tab never mutates with the live board */
+export type PreviousMatchSnapshot = {
+  id: string;
+  endedAt: string;
+  champion: string;
+  modeLabel: string;
+  scoreline: string;
+  gameTimeSec: number;
+  grade: MatchGrade | null;
+  postGame: PostGameReport | null;
+  summaryText: string;
+  deathTotal: number;
+};
+
 interface AppState {
   nav: NavId;
   setNav: (n: NavId) => void;
@@ -172,6 +186,14 @@ interface AppState {
   lastGrade: MatchGrade | null;
   /** Premium post-game memory debrief */
   lastPostGame: PostGameReport | null;
+  /**
+   * Snapshot of the last finished (or replaced) match for the Previous tab.
+   * Current live board always uses fresh match state after a new game starts.
+   */
+  previousMatch: PreviousMatchSnapshot | null;
+  /** Live panel: this game vs previous game */
+  livePane: "current" | "previous";
+  setLivePane: (p: "current" | "previous") => void;
   champSelect: ChampSelectState | null;
   deathReport: DeathPatternReport | null;
   requestChampSelectPlan: () => Promise<void>;
@@ -264,6 +286,183 @@ export function resetCoachVoice(opts?: { error?: string }) {
 let lastLockInKey = "";
 /** Sticky learning objective across the match (3-block style) */
 let sessionLearningObjective: string | null = null;
+/** Coarse id so we detect a new match even if Live Client never dropped inGame */
+let liveMatchKey: string | null = null;
+/** Guard against double beginLiveMatch */
+let beginningMatch = false;
+/** Previous poll sample for new-match detection (before state overwrite) */
+let lastLiveSample: {
+  inGame: boolean;
+  gameTime: number;
+  champion: string | null;
+  kills: number;
+  deaths: number;
+} | null = null;
+
+function buildMatchKey(ctx: GameContext): string {
+  const you = ctx.you;
+  return [you?.championName || "?", ctx.gameMode || "", ctx.mapName || "", ctx.queueType || ""].join(
+    "|"
+  );
+}
+
+/** True when Live Client jumped to a new match without a clean inGame false gap */
+function looksLikeNewMatchFromSample(
+  prev: typeof lastLiveSample,
+  next: GameContext
+): boolean {
+  if (!prev?.inGame || !next.inGame || !next.you) return false;
+  const pt = prev.gameTime || 0;
+  const nt = next.gameTime || 0;
+  // Clock rewound a lot (post-game → next load-in)
+  if (pt > 90 && nt < 50) return true;
+  // Different champ early
+  if (prev.champion && next.you.championName && prev.champion !== next.you.championName && nt < 180) {
+    return true;
+  }
+  // KDA reset while clock early
+  if (
+    pt > 120 &&
+    nt < 60 &&
+    (next.you.kills || 0) + (next.you.deaths || 0) + (next.you.assists || 0) === 0 &&
+    prev.kills + prev.deaths > 0
+  ) {
+    return true;
+  }
+  return false;
+}
+
+async function beginLiveMatch(
+  get: () => AppState,
+  set: (
+    partial: Partial<AppState> | ((s: AppState) => Partial<AppState>)
+  ) => void,
+  ctx: GameContext
+) {
+  if (beginningMatch) return;
+  beginningMatch = true;
+  try {
+    const champ = ctx.you?.championName || "game";
+    const modeProf = detectModeProfile({
+      gameMode: ctx.gameMode,
+      mapName: ctx.mapName,
+      queueType: ctx.queueType,
+      gameQueueConfigId: ctx.gameQueueConfigId,
+    });
+
+    // Freeze previous game for Previous tab (don't lose it when board goes live)
+    const snap = snapshotFromState(get);
+    if (snap && (snap.gameTimeSec > 45 || snap.grade || snap.postGame || snap.deathTotal > 0)) {
+      set({ previousMatch: snap });
+    }
+
+    spokenThisGame = 0;
+    aiCalloutsThisGame = 0;
+    coachWatch = emptyWatchState();
+    matchMemory = emptyMatchMemory(champ);
+    lastSpokenTips = [];
+    processedSignals.clear();
+    // Keep cross-game block LO; clear per-match sticky so brain re-seeds
+    sessionLearningObjective = loadBlockLearningObjective();
+    calloutBusy = false;
+    coachVoiceLockedUntil = 0;
+    lastLockInKey = "";
+    liveMatchKey = buildMatchKey(ctx);
+
+    let sid = get().sessionId;
+    try {
+      const session = await createSession();
+      sid = session.id;
+    } catch {
+      /* keep existing session if create fails */
+    }
+
+    set({
+      sessionId: sid,
+      nav: "live",
+      livePane: "current",
+      coachBrain: null,
+      coachSilence: null,
+      lastGrade: null,
+      lastPostGame: null,
+      activeSummary: null,
+      // Agent poll refills deathReport; don't carry previous match deaths
+      deathReport: null,
+      messages: [
+        {
+          id: `sys-live-${Date.now()}`,
+          role: "system",
+          content: `New game — ${modeProf.label} · ${champ}. Fresh coach board (previous match is under Previous).`,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      toast: `New game — ${modeProf.label} · ${champ}`,
+    });
+    window.setTimeout(() => {
+      if (get().toast?.startsWith("New game") || get().toast?.startsWith("Live —")) {
+        set({ toast: null });
+      }
+    }, 4000);
+    if (localStorage.getItem("rc_auto_compact") !== "0" && get().layout === "full") {
+      localStorage.setItem("rc_layout", "compact");
+      set({ layout: "compact" });
+    }
+    if (sid) {
+      try {
+        await pushContext(sid, ctx);
+      } catch {
+        /* next poll retries */
+      }
+    }
+  } finally {
+    beginningMatch = false;
+  }
+}
+
+function snapshotFromState(
+  get: () => AppState,
+  opts?: { summaryText?: string }
+): PreviousMatchSnapshot | null {
+  const s = get();
+  const you = s.context.you;
+  if (!you && !s.lastGrade && !s.lastPostGame && s.messages.length < 2) return null;
+  const champ = you?.championName || "Match";
+  const modeProf = detectModeProfile({
+    gameMode: s.context.gameMode,
+    mapName: s.context.mapName,
+    queueType: s.context.queueType,
+    gameQueueConfigId: s.context.gameQueueConfigId,
+  });
+  const scoreline = you
+    ? `${you.kills}/${you.deaths}/${you.assists}`
+    : s.lastPostGame?.scoreline || "—";
+  const summaryBits: string[] = [];
+  if (s.lastGrade) {
+    summaryBits.push(`Grade ${s.lastGrade.letter} (${s.lastGrade.score}/100)`);
+    if (s.lastGrade.habits?.[0]) summaryBits.push(s.lastGrade.habits[0]);
+  }
+  if (s.lastPostGame?.speakable) summaryBits.push(s.lastPostGame.speakable);
+  if (s.activeSummary?.bullets?.length) {
+    summaryBits.push(...s.activeSummary.bullets.slice(0, 3));
+  }
+  const lastSys = [...s.messages]
+    .reverse()
+    .find((m) => m.role === "system" || m.role === "callout");
+  if (lastSys && summaryBits.length < 2) summaryBits.push(lastSys.content.slice(0, 280));
+
+  return {
+    id: `prev-${Date.now()}`,
+    endedAt: new Date().toISOString(),
+    champion: champ,
+    modeLabel: modeProf.label,
+    scoreline,
+    gameTimeSec: s.context.gameTime || 0,
+    grade: s.lastGrade,
+    postGame: s.lastPostGame,
+    summaryText: opts?.summaryText || summaryBits.filter(Boolean).join("\n") || "Previous match",
+    deathTotal: s.deathReport?.total ?? s.context.deathReport?.total ?? 0,
+  };
+}
 
 function brainToUi(
   brain: CoachBrainState,
@@ -718,6 +917,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   lastGrade: null,
   lastPostGame: null,
+  previousMatch: null,
+  livePane: "current",
+  setLivePane: (livePane) => set({ livePane }),
   champSelect: null,
   deathReport: null,
   coachDebug: {
@@ -939,33 +1141,26 @@ export const useAppStore = create<AppState>((set, get) => ({
         })();
       }
 
-      // Entered a new live game → reset budgets + playtest-friendly UI
-      if (!wasInGame && nowInGame) {
-        spokenThisGame = 0;
-        aiCalloutsThisGame = 0;
-        coachWatch = emptyWatchState();
-        lastSpokenTips = [];
-        sessionLearningObjective = null;
-        const champ = status.context.you?.championName || "game";
-        const modeProf = detectModeProfile({
-          gameMode: status.context.gameMode,
-          mapName: status.context.mapName,
-          queueType: status.context.queueType,
-          gameQueueConfigId: status.context.gameQueueConfigId,
-        });
-        set({
-          nav: "live",
-          toast: `Live — ${modeProf.label} · ${champ}. Coach brain online.`,
-          coachBrain: null,
-        });
-        window.setTimeout(() => {
-          if (get().toast?.startsWith("Live —")) set({ toast: null });
-        }, 4000);
-        // Auto compact for second-monitor play (once per session preference)
-        if (localStorage.getItem("rc_auto_compact") !== "0" && get().layout === "full") {
-          localStorage.setItem("rc_layout", "compact");
-          set({ layout: "compact" });
-        }
+      // New match: clean enter, OR midstream clock/champ reset (no lobby gap)
+      const enteredLive = !wasInGame && nowInGame;
+      const midstreamNew =
+        wasInGame && nowInGame && looksLikeNewMatchFromSample(lastLiveSample, ctx);
+      const shouldBeginMatch =
+        nowInGame &&
+        Boolean(ctx.you) &&
+        !status.mock &&
+        (enteredLive || midstreamNew);
+
+      lastLiveSample = {
+        inGame: nowInGame,
+        gameTime: ctx.gameTime || 0,
+        champion: ctx.you?.championName || null,
+        kills: ctx.you?.kills || 0,
+        deaths: ctx.you?.deaths || 0,
+      };
+
+      if (shouldBeginMatch && !beginningMatch) {
+        void beginLiveMatch(get, set, ctx);
       }
 
       // Game just ended: stop voice spam + one summary (not endless callouts)
@@ -974,6 +1169,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         calloutBusy = false;
         spokenThisGame = 0;
         aiCalloutsThisGame = 0;
+        liveMatchKey = null;
         if (!streaming) {
           set({ toast: "Game ended — generating summary…" });
           void get().finishGame("unknown");
@@ -1751,6 +1947,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           ? `${reportText}\n\n---\nAI summary:\n${raw}${gradeLine}`
           : `${reportText}${gradeLine}`
         : raw + gradeLine;
+      // Build previous-tab snapshot BEFORE wiping the live board for the lobby shell
       set((s) => ({
         activeSummary: summary,
         lastGrade: grade,
@@ -1777,6 +1974,14 @@ export const useAppStore = create<AppState>((set, get) => ({
           ? `Game over — Grade ${grade.letter}`
           : "Match ended — callouts paused until next game",
       }));
+
+      const prevSnap = snapshotFromState(get, {
+        summaryText: fullContent || "Match ended.",
+      });
+      if (prevSnap) {
+        set({ previousMatch: prevSnap, livePane: "previous" });
+      }
+
       // Voice only if paid cloud TTS / local voice still ok for postGame speakable
       if (get().membershipActive || postGame?.speakable) {
         speakIfEnabled(
@@ -1789,14 +1994,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       void get().loadHistory();
       // Fresh shell for next game (won't appear in history until a real match)
+      matchMemory = emptyMatchMemory();
+      coachWatch = emptyWatchState();
+      processedSignals.clear();
+      lastSpokenTips = [];
+      liveMatchKey = null;
       const next = await createSession();
       set({
         sessionId: next.id,
+        coachBrain: null,
+        deathReport: null,
         messages: [
           {
             id: "sys-next",
             role: "system",
-            content: `Ready for next match.\n${loCard}\nCallouts only run during a live game.`,
+            content: `Ready for next match.\n${loCard}\nOpen Previous for last game. Callouts arm when you load into a new game.`,
             createdAt: new Date().toISOString(),
           },
         ],
