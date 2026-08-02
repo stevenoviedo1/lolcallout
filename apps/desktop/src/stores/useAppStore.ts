@@ -42,6 +42,7 @@ import {
   flavorLine,
   emptyMatchMemory,
   rememberSpoken,
+  memoryBlocksLine,
   deepReasonBoard,
   computeOracleBrain,
   computeTacticalBrain,
@@ -362,6 +363,7 @@ async function beginLiveMatch(
     matchMemory = emptyMatchMemory(champ);
     lastSpokenTips = [];
     processedSignals.clear();
+    clearThemeCools();
     // Keep cross-game block LO; clear per-match sticky so brain re-seeds
     sessionLearningObjective = loadBlockLearningObjective();
     calloutBusy = false;
@@ -526,8 +528,18 @@ function getCoachIntensity(): CoachIntensity {
 function getCoachPersonality(): CoachPersonality {
   return parseCoachPersonality(localStorage.getItem("rc_coach_personality") || "friend");
 }
-/** Min gap between non-urgent spoken tips — coach may speak again when worthy */
-const MIN_SPEAK_GAP_MS = 5_200;
+/** Min gap between non-urgent spoken tips */
+const MIN_SPEAK_GAP_MS = 6_500;
+/**
+ * Same theme / near-duplicate line: stay quiet for 5 minutes (also skips cloud AI).
+ * Stops the “base base base” loop and burns less xAI spend.
+ */
+const THEME_COOL_MS = 5 * 60 * 1000;
+/** themeKey → cool-until epoch ms */
+const themeCoolUntil = new Map<string, number>();
+/** insight signature → cool-until */
+const signatureCoolUntil = new Map<string, number>();
+
 /** Interrupt prior line for these (still one voice — cuts previous) */
 const URGENT_KINDS = new Set([
   "death",
@@ -550,40 +562,136 @@ function normalizeTip(s: string): string {
     .trim();
 }
 
-function isRepeatTip(text: string): boolean {
+const TIP_STOP = new Set([
+  "with",
+  "from",
+  "then",
+  "that",
+  "this",
+  "your",
+  "have",
+  "down",
+  "alive",
+  "just",
+  "take",
+  "dont",
+  "don't",
+  "when",
+  "youre",
+  "you're",
+  "right",
+  "now",
+  "into",
+  "they",
+  "them",
+  "their",
+  "here",
+  "there",
+  "only",
+  "need",
+  "want",
+  "like",
+  "bro",
+  "dude",
+  "yeah",
+  "okay",
+]);
+
+/** Stable short theme for 5-min cool (content words only) */
+function tipThemeKey(text: string): string {
+  return normalizeTip(text)
+    .split(" ")
+    .filter((w) => w.length > 3 && !TIP_STOP.has(w))
+    .slice(0, 7)
+    .join(" ");
+}
+
+function wordOverlapRatio(a: string, b: string): number {
+  const wa = normalizeTip(a)
+    .split(" ")
+    .filter((w) => w.length > 3 && !TIP_STOP.has(w));
+  const wb = normalizeTip(b)
+    .split(" ")
+    .filter((w) => w.length > 3 && !TIP_STOP.has(w));
+  if (wa.length < 3 || wb.length < 3) return 0;
+  const setA = new Set(wa);
+  let hit = 0;
+  for (const w of wb) if (setA.has(w)) hit++;
+  return hit / Math.max(wb.length, wa.length, 1);
+}
+
+function pruneCoolMaps(now = Date.now()) {
+  for (const [k, until] of themeCoolUntil) {
+    if (until <= now) themeCoolUntil.delete(k);
+  }
+  for (const [k, until] of signatureCoolUntil) {
+    if (until <= now) signatureCoolUntil.delete(k);
+  }
+}
+
+function clearThemeCools() {
+  themeCoolUntil.clear();
+  signatureCoolUntil.clear();
+}
+
+/**
+ * True if this tip is the same script as something we already said
+ * (recent buffer OR same theme still inside the 5-min cool window).
+ */
+function isRepeatTip(text: string, signature?: string | null): boolean {
   const n = normalizeTip(text);
   if (!n) return true;
-  // Block near-duplicates so the coach stops looping the same script
+  const now = Date.now();
+  pruneCoolMaps(now);
+
+  if (signature) {
+    const until = signatureCoolUntil.get(signature);
+    if (until && now < until) return true;
+  }
+
+  const theme = tipThemeKey(text);
+  if (theme) {
+    const until = themeCoolUntil.get(theme);
+    if (until && now < until) return true;
+    for (const [k, u] of themeCoolUntil) {
+      if (u <= now) continue;
+      if (k.length >= 8 && theme.length >= 8 && (k.includes(theme) || theme.includes(k))) {
+        return true;
+      }
+      // Overlap against cooled themes' keys
+      if (wordOverlapRatio(k, theme) >= 0.55) return true;
+    }
+  }
+
+  // Short buffer of exact / near-duplicate lines
   return lastSpokenTips.some((prev) => {
     const p = normalizeTip(prev);
     if (p === n) return true;
     if (p.length > 14 && n.length > 14 && (p.includes(n) || n.includes(p))) return true;
-    const stop = new Set([
-      "with",
-      "from",
-      "then",
-      "that",
-      "this",
-      "your",
-      "have",
-      "down",
-      "alive",
-      "just",
-      "take",
-      "dont",
-      "don't",
-      "when",
-      "youre",
-      "you're",
-    ]);
-    const wa = new Set(n.split(" ").filter((w) => w.length > 3 && !stop.has(w)));
-    const wb = p.split(" ").filter((w) => w.length > 3 && !stop.has(w));
-    if (wb.length < 3 || wa.size < 3) return false;
-    let hit = 0;
-    for (const w of wb) if (wa.has(w)) hit++;
-    // Stricter: 50% content words shared = same robot loop
-    return hit / Math.max(wb.length, 1) >= 0.5 && hit >= 3;
+    return wordOverlapRatio(p, n) >= 0.5;
   });
+}
+
+/** After we actually speak — lock this theme for 5 minutes */
+function markTipSpoken(text: string, signature?: string | null) {
+  const until = Date.now() + THEME_COOL_MS;
+  const theme = tipThemeKey(text);
+  if (theme) themeCoolUntil.set(theme, until);
+  if (signature) signatureCoolUntil.set(signature, until);
+  // Cap map size
+  if (themeCoolUntil.size > 40) {
+    const oldest = [...themeCoolUntil.entries()].sort((a, b) => a[1] - b[1]).slice(0, 15);
+    for (const [k] of oldest) themeCoolUntil.delete(k);
+  }
+}
+
+function signalSignature(signal: DetectedSignal): string | null {
+  // insight::kind::signature
+  if (signal.id.startsWith("insight::")) {
+    const parts = signal.id.split("::");
+    if (parts.length >= 3) return parts.slice(2).join("::");
+  }
+  return `${signal.kind}:${tipThemeKey(signal.spokenFallback || signal.detail || signal.title || "")}`;
 }
 
 function isUrgentKind(kind: string): boolean {
@@ -652,17 +760,14 @@ function speakIfEnabled(
     return false;
   }
   // Soft gap after a tip fully ends — stops machine-gun when idle
-  if (!urgent && kind === "callout" && now - lastSpokenAt < 4_500) {
+  if (!urgent && kind === "callout" && now - lastSpokenAt < MIN_SPEAK_GAP_MS) {
     console.info("[voice] skipped — too soon after last tip");
     return false;
   }
-  if (kind === "callout" && !urgent && isRepeatTip(text)) {
-    console.info("[voice] skipped — repeat tip");
-    return false;
-  }
-  // Always block exact/near repeats for replies too
-  if (kind !== "callout" && isRepeatTip(text)) {
-    console.info("[voice] skipped — repeat reply");
+  // 5-min cool on same theme / near-duplicate (skips voice + saves xAI if we never call)
+  if (isRepeatTip(text)) {
+    markTipSpoken(text);
+    console.info("[voice] skipped — theme cool 5m / repeat", kind, calloutKind);
     return false;
   }
 
@@ -675,7 +780,8 @@ function speakIfEnabled(
       return false;
     }
     spokenThisGame += 1;
-    lastSpokenTips = [text, ...lastSpokenTips].slice(0, 18);
+    lastSpokenTips = [text, ...lastSpokenTips].slice(0, 24);
+    markTipSpoken(text);
     try {
       const gt = useAppStore.getState().context.gameTime || 0;
       matchMemory = rememberSpoken(matchMemory, text, gt);
@@ -683,7 +789,8 @@ function speakIfEnabled(
       /* memory optional */
     }
   } else {
-    lastSpokenTips = [text, ...lastSpokenTips].slice(0, 18);
+    lastSpokenTips = [text, ...lastSpokenTips].slice(0, 24);
+    markTipSpoken(text);
   }
 
   // Estimate duration; if something is already talking, extend the lock so the
@@ -1344,6 +1451,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         lastSpokenTips = [];
         lastSpokenAt = 0;
         coachVoiceLockedUntil = 0;
+        clearThemeCools();
         // Keep sessionLearningObjective until finishGame saves block LO
       }
 
@@ -1463,16 +1571,20 @@ export const useAppStore = create<AppState>((set, get) => ({
             }
             fallback = flavorLine(fallback, personality, Math.floor(ctx.gameTime));
 
-            if (!isUrgent && isRepeatTip(fallback)) {
+            const sig = signalSignature(signal);
+            // Block BEFORE cloud AI — same theme within 5 min = silence (saves $)
+            if (isRepeatTip(fallback, sig) || memoryBlocksLine(matchMemory, fallback)) {
               processedSignals.add(signal.id);
+              markTipSpoken(fallback, sig);
               set({
                 coachDebug: {
                   text: fallback.slice(0, 80),
                   source: "none",
                   kind: signal.kind,
                   latencyMs: 0,
-                  error: "repeat tip",
+                  error: "theme cool 5m / repeat — no API",
                 },
+                coachSilence: "Same tip recently — cooling 5 min",
               });
             } else {
               processedSignals.add(signal.id);
@@ -1484,22 +1596,17 @@ export const useAppStore = create<AppState>((set, get) => ({
               const assistantId = `c-${signal.id}-${Date.now()}`;
               const started = Date.now();
 
+              // Fewer AI kinds + lower cap = less xAI spend; local line covers tempo spam
               const AI_KINDS = new Set([
                 "death",
                 "kill",
                 "numbers",
                 "objective",
                 "low_hp",
-                "base",
-                "level_up",
-                "match_start",
                 "shutdown",
-                "tempo",
               ]);
               const useAi =
-                (AI_KINDS.has(signal.kind) ||
-                  signal.severity === "urgent" ||
-                  signal.severity === "warn") &&
+                (AI_KINDS.has(signal.kind) || signal.severity === "urgent") &&
                 Boolean(get().sessionId && shouldRunAiCallout(cs, aiCalloutsThisGame));
 
               set((s) => ({
@@ -1608,7 +1715,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                       }
                       if (
                         cand.length >= 6 &&
-                        !isRepeatTip(cand) &&
+                        !isRepeatTip(cand, sig) &&
                         !(analytics && isObviousLine(cand))
                       ) {
                         line = flavorLine(cand, personality, Math.floor(ctx.gameTime));
@@ -1623,26 +1730,40 @@ export const useAppStore = create<AppState>((set, get) => ({
                       });
                     }
                   }
-                  // Single speak — never local then AI
-                  if (isRepeatTip(line) && line !== fallback) {
+                  // Single speak — never local then AI; drop if still a 5-min theme repeat
+                  if (isRepeatTip(line, sig) && line !== fallback) {
                     line = fallback;
                     source = "local";
+                  }
+                  if (isRepeatTip(line, sig)) {
+                    markTipSpoken(line, sig);
+                    paint(line, source, "theme cool 5m — skipped voice + no re-call");
+                    releaseBusy();
+                    return;
                   }
                   const spoke = speakIfEnabled(line, "callout", signal.kind, {
                     force: isUrgent,
                   });
+                  if (spoke) markTipSpoken(line, sig);
                   paint(line, source, spoke ? undefined : "speak gate blocked");
                   if (spoke) markSig();
                   releaseBusy();
                 })();
               } else {
                 // Paid member, non-AI signal: local seed only (one voice)
-                const spoke = speakIfEnabled(fallback, "callout", signal.kind, {
-                  force: isUrgent,
-                });
-                paint(fallback, "local", spoke ? undefined : "speak gate blocked");
-                if (spoke) markSig();
-                releaseBusy();
+                if (isRepeatTip(fallback, sig)) {
+                  markTipSpoken(fallback, sig);
+                  paint(fallback, "local", "theme cool 5m");
+                  releaseBusy();
+                } else {
+                  const spoke = speakIfEnabled(fallback, "callout", signal.kind, {
+                    force: isUrgent,
+                  });
+                  if (spoke) markTipSpoken(fallback, sig);
+                  paint(fallback, "local", spoke ? undefined : "speak gate blocked");
+                  if (spoke) markSig();
+                  releaseBusy();
+                }
               }
             }
           }

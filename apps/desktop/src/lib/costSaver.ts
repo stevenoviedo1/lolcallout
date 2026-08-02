@@ -32,11 +32,13 @@ export interface CostSaverPrefs {
 }
 
 export const DEFAULT_COST_SAVER: CostSaverPrefs = {
-  // Guide mode: speak every worthy insight (score gate is the filter)
+  // Guide mode: speak worthy insights (score gate + 5-min theme cool)
   urgentVoiceOnly: false,
-  maxSpokenPerGame: 80,
+  /** Cap spoken lines per match (cost + less spam) */
+  maxSpokenPerGame: 36,
   backgroundAiCallouts: true,
-  maxAiCalloutsPerGame: 60,
+  /** Cloud AI callouts are expensive — keep tight; local seed covers the rest */
+  maxAiCalloutsPerGame: 22,
 };
 
 /** High-impact moments when "impact only" is ON */
