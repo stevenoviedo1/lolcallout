@@ -82,11 +82,11 @@ function etaTimer(
   const urgency = urgencyFor(eta);
   let speak: string | null = null;
   if (urgency === "live") {
-    speak = `${champ}: ${label} is UP — contest only with numbers / vision.`;
+    speak = `${champ}: ${label} is up — contesting depends on numbers and vision.`;
   } else if (urgency === "setup") {
-    speak = `${champ}: ${label} in ~${eta}s — crash wave and arrive early.`;
+    speak = `${champ}: ${label} spawns in ${aboutEta(eta)}.`;
   } else if (urgency === "soon") {
-    speak = `${champ}: ${label} in ~${eta}s — start pathing / vision.`;
+    speak = `${champ}: ${label} spawns in ${aboutEta(eta)}.`;
   }
   return { kind, label, etaSec: eta, fromEvent, urgency, speak };
 }
@@ -94,6 +94,14 @@ function etaTimer(
 /**
  * Compute objective + wave clock from context + analytics.
  */
+/** Riot policy: coarse, non-urgent timer wording — no seconds-to-act. */
+function aboutEta(sec: number): string {
+  if (sec <= 20) return "a few seconds";
+  if (sec <= 45) return "under a minute";
+  if (sec <= 90) return "about a minute";
+  return `about ${Math.round(sec / 60)} minutes`;
+}
+
 export function computeObjClockBrain(
   ctx: GameContext,
   a: MatchAnalytics | null,
@@ -176,9 +184,9 @@ export function computeObjClockBrain(
   const toCannon = mod === 0 ? 0 : cycle - mod;
   let waveHint: string | null = null;
   if (toCannon <= 12) {
-    waveHint = `${champ}: cannon / crash wave now — shove then move.`;
+    waveHint = `${champ}: cannon wave is arriving.`;
   } else if (toCannon <= 25 && (green || enemyDead >= 1)) {
-    waveHint = `${champ}: crash in ~${toCannon}s then look ${green ? "convert" : "obj"}.`;
+    waveHint = `${champ}: cannon wave soon${green ? " and you have numbers" : ""}.`;
   }
 
   // Sort: live > setup > soon > later, then eta
@@ -209,26 +217,26 @@ export function computeObjClockBrain(
 
   if (primary && !ctx.you.isDead) {
     if (primary.urgency === "live" && green && man >= 1) {
-      speak = `${champ}: ${primary.label} UP + numbers — take it, don't chase fog.`;
+      speak = `${champ}: ${primary.label} is up and you have numbers — taking it is an option.`;
       score = 82;
     } else if (primary.urgency === "live" && red) {
-      speak = `${champ}: ${primary.label} UP but red light — vision only, no force.`;
+      speak = `${champ}: ${primary.label} is up but numbers are against you — vision or giving it are options.`;
       score = 64;
     } else if (primary.urgency === "live" && (green || enemyDead >= 1 || man >= 2)) {
-      speak = `${champ}: ${primary.label} is UP — contest only with numbers / vision.`;
+      speak = `${champ}: ${primary.label} is up — contesting depends on numbers and vision.`;
       score = 70;
     } else if (primary.urgency === "live" && primary.fromEvent && !quietBoard) {
       // Only re-announce after we saw a take when board isn't dead quiet
-      speak = `${champ}: ${primary.label} timer — prep the next take with vision.`;
+      speak = `${champ}: ${primary.label} was taken — next spawn is on the timer.`;
       score = 52;
     } else if (primary.urgency === "setup" && man >= 0 && !quietBoard) {
       speak = primary.speak;
       score = 68;
     } else if (primary.urgency === "setup" && man < 0) {
-      speak = `${champ}: ${primary.label} in ~${primary.etaSec}s — don't contest alone; crash and wait.`;
+      speak = `${champ}: ${primary.label} spawns in ${aboutEta(primary.etaSec)} and numbers are against you.`;
       score = 60;
     } else if (primary.urgency === "soon" && a?.you.roleHint === "JUNGLE") {
-      speak = `${champ}: ${primary.label} in ~${primary.etaSec}s — you set the pit; allies crash.`;
+      speak = `${champ}: ${primary.label} spawns in ${aboutEta(primary.etaSec)}.`;
       score = 66;
     } else if (waveHint && green && (!primary || primary.urgency === "later")) {
       speak = waveHint;
@@ -237,9 +245,9 @@ export function computeObjClockBrain(
     // No generic "Dragon is UP" on quiet yellow boards — silence wins
   }
 
-  // Second-order: ace → force live obj language
+  // Second-order: ace → name the open options (awareness, not an order)
   if (!ctx.you.isDead && a && a.enemy.alive === 0 && primary) {
-    speak = `${champ}: ACE — ${primary.label} or inhib NOW, no fountain chase.`;
+    speak = `${champ}: ace — ${primary.label} or an inhib are both options.`;
     score = 90;
   }
 

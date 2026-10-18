@@ -181,13 +181,13 @@ export function craftCoachLine(
       add(
         "base_gold",
         gold >= 700 ? 95 + Math.min(10, gold / 200) : 40,
-        `${c}: ${hp}% + ${gold}g — best option is base now, not another fight.`
+        `${c}: low HP (${hp}%) and ${gold} unspent. Base is an option.`
       );
       // Option B: give wave no gold
       add(
         "give_wave_base",
         gold < 700 ? 88 : 55,
-        `${c}: ${hp}% — give this wave, base; fighting here is low-%.`
+        `${c}: ${hp}% HP — giving the wave to base, or staying, are options.`
       );
       // Option C: play for peel if support and team fighting numbers
       if (isSup && manAdv >= 0 && a.enemy.dead === 0) {
@@ -226,14 +226,14 @@ export function craftCoachLine(
       add(
         "plates_then_base",
         95,
-        `${c}: ${gold}g but ${enemyDown(a)} down ~${resp}s — plates first, then base.`
+        `${c}: ${gold}g unspent and ${enemyDown(a)} dead — plates or a base are both options.`
       );
     }
     if (a.enemy.dead >= 1 && a.minute >= 8 && a.objectiveWindows[0]) {
       add(
         "obj_then_base",
         92,
-        `${c}: ${gold}g — start obj with numbers, shop after; don't leave free timer.`
+        `${c}: ${gold}g unspent with numbers — an objective or a base are both options.`
       );
     }
     if (isSup && a.minute < 14) {
@@ -259,7 +259,7 @@ export function craftCoachLine(
       add(
         "red_hold",
         85,
-        `${c}: red light — ${allyDown(a)} dead ~${resp}s; hold tower, wait high-%.`
+        `${c}: ${allyDown(a)} allies dead — tower range or waiting for them are options.`
       );
       if (isJg) {
         add(
@@ -287,19 +287,19 @@ export function craftCoachLine(
     if (a.enemy.dead >= 2) {
       const dead = enemyDown(a);
       if (mode.noRecall) {
-        add("aram_plates", 90, `${c}: green light — ${dead} down; shove plates, no fountain.`);
+        add("aram_plates", 90, `${c}: ${dead} dead — pushing plates is an option.`);
         return best();
       }
       // Competing converts
       add(
         "plates",
         80 + (a.phase === "early" ? 15 : 5),
-        `${c}: ${dead} down ~${resp}s — closest plates now (best free gold).`
+        `${c}: ${dead} dead — the closest plates are an option.`
       );
       add(
         "obj",
         75 + (a.minute >= 8 ? 20 : 0) + (a.objectiveWindows[0] ? 10 : 0),
-        `${c}: ${dead} down ~${resp}s — start the objective before they spawn.`
+        `${c}: ${dead} dead — the objective is an option while they're down.`
       );
       if (isJg) {
         add(
@@ -381,7 +381,7 @@ export function craftCoachLine(
       add(
         "kill_respect",
         75,
-        `${c}: got the kill but respect ${threat} — no ego follow-up into them.`
+        `${c}: got the kill — ${threat} is still alive and fed.`
       );
     }
     return best();
@@ -390,14 +390,14 @@ export function craftCoachLine(
   // OBJECTIVE
   if (kind === "objective") {
     if (mode.noRecall) {
-      return `${c}: tower pressure — group mid; plates if their engage is down.`;
+      return `${c}: tower pressure — grouping mid or plates are options.`;
     }
     if (a.enemy.dead >= 1 || manAdv > 0) {
-      add("start_obj", 90, `${c}: numbers for obj — start it now; best use of the timer.`);
-      add("cross_map", 70, `${c}: if obj is contested bad, take free cross-map plates instead.`);
+      add("start_obj", 90, `${c}: you have numbers near the objective — starting it is an option.`);
+      add("cross_map", 70, `${c}: cross-map plates are another option if the objective looks bad.`);
     } else {
-      add("setup_wait", 85, `${c}: obj up but even numbers — shove first, arrive together; no solo pit.`);
-      add("trade", 75, `${c}: if they take obj uncontested, trade opposite tower — don't int the pit.`);
+      add("setup_wait", 85, `${c}: objective is up and numbers are even — pushing first or grouping are options.`);
+      add("trade", 75, `${c}: if the objective goes uncontested, the opposite tower is an option.`);
     }
     if (threat) {
       add("track_threat", 80, `${c}: obj — track ${threat} before you walk pit; vision first.`);

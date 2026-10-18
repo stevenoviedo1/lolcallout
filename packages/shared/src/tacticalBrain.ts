@@ -152,11 +152,11 @@ export function computeTacticalBrain(
   if (!a.you.isDead && shutdownRisk && a.you.hpPct != null && a.you.hpPct < 40) {
     const g = a.you.gold;
     speak = mode.noRecall
-      ? `${c}: you're a shutdown — max range only${g >= 1000 ? `, ${g}g shop on death` : ""}.`
-      : `${c}: you're a shutdown${g >= 800 ? ` + ${g}g` : ""} — leave, don't gift it.`;
+      ? `${c}: you're worth a shutdown at low HP — max range is an option.`
+      : `${c}: you're worth a shutdown${g >= 800 ? ` with ${g}g unspent` : ""} at low HP — base is an option.`;
     score = 78;
   } else if (!a.you.isDead && leadProtect && primaryThreat && a.manAdvantage < 1) {
-    speak = `${c}: lead is real — respect ${primaryThreat}, only force with numbers.`;
+    speak = `${c}: you're ahead, and ${primaryThreat} is their fed threat — fights depend on numbers.`;
     score = 58;
   } else if (
     !a.you.isDead &&
@@ -166,7 +166,7 @@ export function computeTacticalBrain(
   ) {
     const focus = a.battleFocus || primaryThreat;
     speak = focus
-      ? `${c}: ${comboWindow} — focus ${focus}.`
+      ? `${c}: ${comboWindow} — ${focus} is the lowest-HP/fed threat in this fight.`
       : `${c}: window open — ${comboWindow}.`;
     score = 74;
   } else if (
@@ -176,7 +176,7 @@ export function computeTacticalBrain(
     a.enemy.dead >= 2 &&
     a.fightLight === "green"
   ) {
-    speak = `${c}: ~${convertSeconds}s on dead side — finish plate/obj before spawn.`;
+    speak = `${c}: ${a.enemy.dead} enemies are dead — plates or an objective are options.`;
     score = 80;
   }
 

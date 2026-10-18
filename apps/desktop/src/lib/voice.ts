@@ -880,7 +880,7 @@ export function testVoice(prefs?: Partial<VoicePrefs>) {
     if (prefs) setVoicePrefs(prefs);
     speakText(
       // Deliberately includes KDA-style numbers to prove date fix
-      "Coach online. You're four kills, one death, three assists. Base now. One thousand six hundred gold. Don't fight without flash.",
+      "Coach online. You're four kills, one death, three assists, with one thousand six hundred gold unspent. Base is an option.",
       { interrupt: true, maxChars: 320, prefs }
     );
   });

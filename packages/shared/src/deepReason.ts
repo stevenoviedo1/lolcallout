@@ -183,10 +183,10 @@ export function deepReasonBoard(
       ace
         ? g >= 1300 && !noRecall
           ? `ACE convert — tower/inhib then base ${g}g`
-          : `ACE convert — baron/inhib/plates NOW`
+          : `Ace — baron/inhib/plates are open (player decides)`
         : deadStr
           ? role === "JUNGLE"
-            ? `Convert — ${deadStr} down, YOU start obj`
+            ? `${deadStr} dead — objective is an option`
             : `Convert — ${deadStr} down, plates/obj not chase`
           : `Convert lead — tower/obj over kills`,
       ev,

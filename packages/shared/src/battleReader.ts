@@ -309,12 +309,12 @@ export function readBattle(ctx: GameContext): BattleRead | null {
     if (noRecall) {
       jobLine =
         hp < 20
-          ? `${c}: ${Math.round(hp)}% — max range only; stack with two, shop on death.`
-          : `${c}: ${Math.round(hp)}% — stop frontlining; poke edge only.`;
+          ? `${c}: ${Math.round(hp)}% HP — max range or grouping are options.`
+          : `${c}: ${Math.round(hp)}% HP — frontlining is risky; poking from the edge is an option.`;
     } else if (you.currentGold >= 900) {
-      jobLine = `${c}: ${Math.round(hp)}% + ${Math.round(you.currentGold)}g — leave NOW and base.`;
+      jobLine = `${c}: ${Math.round(hp)}% HP with ${Math.round(you.currentGold)}g unspent — backing off to base is an option.`;
     } else {
-      jobLine = `${c}: ${Math.round(hp)}% — disengage; max range, no all-in.`;
+      jobLine = `${c}: ${Math.round(hp)}% HP mid-fight — disengaging or staying at max range are options.`;
     }
     reason = "critical HP mid-fight";
   } else if (phase === "cleanup" || ace) {
@@ -323,16 +323,16 @@ export function readBattle(ctx: GameContext): BattleRead | null {
     commit = false;
     if (ace) {
       jobLine = noRecall
-        ? `${c}: ace — shove for plates/nexus pressure; no fountain dive ego.`
+        ? `${c}: ace — plates or nexus pressure are options.`
         : you.currentGold >= 1300
-          ? `${c}: ACE — take inhib/obj or base ${Math.round(you.currentGold)}g; no fog chase.`
-          : `${c}: ACE — baron/inhib/plates NOW; don't chase into fog.`;
+          ? `${c}: ace — inhib, objective, or a base with ${Math.round(you.currentGold)}g are all options.`
+          : `${c}: ace — baron, inhib, or plates are all open while they're dead.`;
     } else {
       jobLine = noRecall
-        ? `${c}: ${deadNames} down — shove plates mid; hold for the pack.`
+        ? `${c}: ${deadNames} dead — pushing or waiting for the group are options.`
         : role === "JUNGLE"
-          ? `${c}: ${deadNames} down — YOU start obj; allies crash waves.`
-          : `${c}: ${deadNames} down — plates or obj, not one more low-% chase.`;
+          ? `${c}: ${deadNames} dead — an objective or invading camps are options for you as jungle.`
+          : `${c}: ${deadNames} dead — plates or an objective are options.`;
     }
     reason = ace ? "ace convert" : "post-fight convert";
   } else if (phase === "losing" || manAdvantage <= -2) {
@@ -342,14 +342,14 @@ export function readBattle(ctx: GameContext): BattleRead | null {
       yourJob = "peel";
       disengage = false;
       jobLine = primaryThreat
-        ? `${c}: ${allyDeadNames} down — peel ${peelFor}, respect ${primaryThreat}.`
-        : `${c}: numbers down — peel ${peelFor}; give ground.`;
+        ? `${c}: ${allyDeadNames} dead — ${primaryThreat} is the biggest threat to ${peelFor}; peel or back off are options.`
+        : `${c}: ${alliesAlive}v${enemiesAlive} — peeling ${peelFor} or giving ground are options.`;
     } else if (role === "JUNGLE") {
-      jobLine = `${c}: fight losing ${alliesAlive}v${enemiesAlive} — drop river, clear opposite.`;
+      jobLine = `${c}: fight is ${alliesAlive}v${enemiesAlive} against you — backing off or farming the opposite side are options.`;
     } else {
       jobLine = primaryThreat
-        ? `${c}: ${alliesAlive}v${enemiesAlive} — leave; ${primaryThreat} cleans you if you stay.`
-        : `${c}: fight losing ${alliesAlive}v${enemiesAlive} — disengage, save flash.`;
+        ? `${c}: ${alliesAlive}v${enemiesAlive} — ${primaryThreat} is the fed threat in this fight; staying or backing off is your call.`
+        : `${c}: fight is ${alliesAlive}v${enemiesAlive} against you — disengaging is an option.`;
     }
     reason = "number deficit in fight";
   } else if (phase === "winning" || manAdvantage >= 2) {
@@ -358,21 +358,21 @@ export function readBattle(ctx: GameContext): BattleRead | null {
     const tgt = focusTarget || primaryThreat;
     if (tgt && livingEnemies.length > 0) {
       if (role === "CARRY") {
-        jobLine = `${c}: winning — right-click ${tgt} max range; no flash chase.`;
+        jobLine = `${c}: ${alliesAlive}v${enemiesAlive} — ${tgt} is the lowest-HP/fed threat in this fight.`;
       } else if (role === "SUPPORT") {
-        jobLine = `${c}: winning — zone ${tgt}, peel ${peelFor || "carry"}; then plates.`;
+        jobLine = `${c}: ${alliesAlive}v${enemiesAlive} — ${tgt} is the lowest-HP/fed threat in this fight; zoning or peeling ${peelFor || "your carry"} are options.`;
       } else if (role === "JUNGLE") {
-        jobLine = `${c}: winning — collapse ${tgt}, then set obj; no solo fog.`;
+        jobLine = `${c}: ${alliesAlive}v${enemiesAlive} — ${tgt} is the lowest-HP/fed threat in this fight; an objective is also open.`;
       } else if (role === "MID" || role === "FLEX") {
         const opener = kit?.combos[0]?.split("→")[0]?.trim();
         jobLine = opener
-          ? `${c}: winning — ${opener} onto ${tgt}, then convert plates.`
-          : `${c}: winning — burst ${tgt}, then plates/obj not chase.`;
+          ? `${c}: ${alliesAlive}v${enemiesAlive} — ${tgt} is the lowest-HP/fed threat in this fight; ${opener} is in your kit.`
+          : `${c}: ${alliesAlive}v${enemiesAlive} — ${tgt} is the lowest-HP/fed threat in this fight.`;
       } else {
-        jobLine = `${c}: winning — pin ${tgt}, take tower; no ego dive.`;
+        jobLine = `${c}: ${alliesAlive}v${enemiesAlive} — ${tgt} is the lowest-HP/fed threat in this fight; the tower is also an option.`;
       }
     } else {
-      jobLine = `${c}: winning ${alliesAlive}v${enemiesAlive} — take tower/obj now.`;
+      jobLine = `${c}: up ${alliesAlive}v${enemiesAlive} — tower or an objective are options.`;
     }
     reason = "man advantage mid-fight";
   } else if (phase === "teamfight" || phase === "skirmish") {
@@ -380,21 +380,21 @@ export function readBattle(ctx: GameContext): BattleRead | null {
     if (role === "SUPPORT") {
       yourJob = "peel";
       jobLine = peelFor
-        ? `${c}: ${phase} — bodyblock for ${peelFor}${primaryThreat ? `; eyes on ${primaryThreat}` : ""}.`
-        : `${c}: ${phase} — peel and zone; you don't face-check.`;
+        ? `${c}: ${phase} — ${peelFor} is your carry${primaryThreat ? `; ${primaryThreat} is the fed threat` : ""}.`
+        : `${c}: ${phase} — peeling or zoning are options.`;
     } else if (role === "JUNGLE") {
       yourJob = livingEnemies[0]?.fed ? "focus_threat" : "focus_carry";
       const tgt = focusTarget || primaryThreat;
       commit = hp >= 40;
       jobLine = tgt
-        ? `${c}: ${phase} — path to ${tgt}; only flash if it's free.`
-        : `${c}: ${phase} — hit highest value in range; no random smite fight.`;
+        ? `${c}: ${phase} — ${tgt} is the lowest-HP/fed threat in this fight.`
+        : `${c}: ${phase} — several targets in range; pick based on HP and threat.`;
     } else if (role === "CARRY") {
       yourJob = "dps_backline";
       commit = hp >= 45;
       jobLine = primaryThreat
-        ? `${c}: ${phase} — DPS from max range; ${primaryThreat} is not your dive.`
-        : `${c}: ${phase} — attack what's safe; never flash first.`;
+        ? `${c}: ${phase} — ${primaryThreat} is the fed threat; range is your friend vs them.`
+        : `${c}: ${phase} — your position decides what's safe to hit.`;
     } else {
       // MID / TOP / FLEX — secondary engage, charm windows, etc.
       yourJob = "focus_threat";
@@ -402,30 +402,30 @@ export function readBattle(ctx: GameContext): BattleRead | null {
       const tgt = focusTarget || primaryThreat;
       const opener = kit?.combos[0]?.split("→")[0]?.trim();
       if (commit && tgt && opener) {
-        jobLine = `${c}: ${phase} — look ${opener} on ${tgt}; leave if they turn.`;
+        jobLine = `${c}: ${phase} — ${tgt} is the lowest-HP/fed threat in this fight; ${opener} is in your kit.`;
       } else if (commit && tgt) {
-        jobLine = `${c}: ${phase} — secondary on ${tgt}; don't first-in.`;
+        jobLine = `${c}: ${phase} — ${tgt} is the lowest-HP/fed threat in this fight.`;
       } else if (primaryThreat) {
         yourJob = "hold_edge";
-        jobLine = `${c}: ${phase} edge — bait ${primaryThreat}; punish after they spend.`;
+        jobLine = `${c}: ${phase} — ${primaryThreat} is the fed threat; baiting or waiting are options.`;
       } else {
-        jobLine = `${c}: skirmish — short trade, leave on flash; no ego.`;
+        jobLine = `${c}: skirmish — trading short or backing off are options.`;
       }
     }
   } else if (killsLast25s >= 1 && manAdvantage >= 1 && fightAgeSec > 12) {
     phase = "cleanup";
     yourJob = "convert_after";
     commit = false;
-    jobLine = `${c}: fight over — ${deadNames} down; plates/obj now.`;
+    jobLine = `${c}: fight over — ${deadNames} dead; plates or an objective are options.`;
     reason = "post-fight convert window";
   } else {
     yourJob = "wait";
     if (primaryThreat && primaryThreat && livingEnemies[0]?.ultUnlocked) {
-      jobLine = `${c}: no fight — track ${primaryThreat} (ult unlocked); wave first.`;
+      jobLine = `${c}: no fight — ${primaryThreat} is level 6+ with ult unlocked.`;
     } else if (primaryThreat) {
-      jobLine = `${c}: no fight — track ${primaryThreat}; own the next wave.`;
+      jobLine = `${c}: no fight — ${primaryThreat} is the fed threat on their side.`;
     } else {
-      jobLine = `${c}: no fight — crash wave, move first.`;
+      jobLine = `${c}: no fight — wave, vision, or a base are options.`;
     }
     reason = "idle";
   }

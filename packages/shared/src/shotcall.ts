@@ -50,8 +50,9 @@ export function makeShotcall(
   const focus = a.battleFocus || threat;
   const kit = getChampKit(c);
   const opener = kit?.combos[0]?.split("→")[0]?.trim();
-  const resp = a.enemyRespawnEstSec;
-  const respTag = resp != null ? `~${resp}s` : "";
+  // Riot policy: no respawn countdowns (seconds-to-act). Just say how many are dead.
+  const deadCount = a.enemyDeadNames.length;
+  const respTag = deadCount > 0 ? `(${deadCount} enem${deadCount === 1 ? "y" : "ies"} dead)` : "";
   const role = a.you.roleHint;
   const noRecall = mode.noRecall || a.noRecall;
   const phase = a.battlePhase;
@@ -63,8 +64,8 @@ export function makeShotcall(
     if (noRecall) {
       const line =
         g >= 1000
-          ? `${c}: ${hp}% holding ${g}g — max range, shop on death. Don't donate.`
-          : `${c}: ${hp}% — backline only. You're not the engage.`;
+          ? `${c}: ${hp}% HP holding ${g}g — max range or backing off are options.`
+          : `${c}: ${hp}% HP — engaging at this HP is risky; backline is an option.`;
       return {
         line: clip(line),
         score: 98,
@@ -73,8 +74,8 @@ export function makeShotcall(
     }
     const line =
       g >= 700
-        ? `${c}: ${hp}% ${g}g — BASE. That gold is a shutdown if you stay.`
-        : `${c}: ${hp}% — leave the wave. Staying is free LP for them.`;
+        ? `${c}: low HP (${hp}%) and ${g} unspent. Base is an option.`
+        : `${c}: ${hp}% HP — staying on the wave is risky; leaving it is an option.`;
     return { line: clip(line), score: 98, why: "critical HP SR" };
   }
 
@@ -82,7 +83,7 @@ export function makeShotcall(
   if (phase === "cleanup" || (man >= 4 && dead.length >= 2) || a.enemy.alive === 0) {
     if (noRecall) {
       return {
-        line: clip(`${c}: dead side — mid shove for plates. No fountain heroics.`),
+        line: clip(`${c}: their side is dead — pushing for plates is an option.`),
         score: 95,
         why: "ace convert ARAM",
       };
@@ -91,8 +92,8 @@ export function makeShotcall(
       return {
         line: clip(
           deadStr
-            ? `${c}: ${deadStr} down ${respTag} — you start obj, they crash. Go.`
-            : `${c}: map open — start the obj, don't solo invade fog.`
+            ? `${c}: ${deadStr} dead ${respTag} — an objective, camps, or a gank are options.`
+            : `${c}: map is open — the objective or camps are options.`
         ),
         score: 96,
         why: "jg post-fight obj",
@@ -100,8 +101,8 @@ export function makeShotcall(
     }
     const line =
       g >= 1400 && man >= 3
-        ? `${c}: ${deadStr || "them"} down ${respTag} — one tower then base ${g}g. No fog.`
-        : `${c}: ${deadStr || "them"} down ${respTag} — plates/inhib/obj. Chase = throw.`;
+        ? `${c}: ${deadStr || "they're"} dead ${respTag} — a tower or a base with ${g}g are options.`
+        : `${c}: ${deadStr || "they're"} dead ${respTag} — plates, inhib, or an objective are options.`;
     return {
       line: clip(line),
       score: 96,
@@ -116,8 +117,8 @@ export function makeShotcall(
       return {
         line: clip(
           threat
-            ? `${c}: peel ${carry}. ${threat} is the delete button — not your all-in.`
-            : `${c}: peel ${carry}. You don't win this fight first-in.`
+            ? `${c}: ${threat} is the fed threat near ${carry} — peeling or backing off are options.`
+            : `${c}: fight is ${a.team.alive}v${a.enemy.alive} — peeling ${carry} or backing off are options.`
         ),
         score: 93,
         why: "support losing peel",
@@ -125,14 +126,14 @@ export function makeShotcall(
     }
     if (role === "JUNGLE") {
       return {
-        line: clip(`${c}: ${man} — drop the river. Opposite camps. Live.`),
+        line: clip(`${c}: ${a.team.alive}v${a.enemy.alive} against you — backing off or farming the opposite side are options.`),
         score: 92,
         why: "jg lose path",
       };
     }
     const line = threat
-      ? `${c}: ${a.team.alive}v${a.enemy.alive} — leave. ${threat} farms you if you stay.`
-      : `${c}: ${a.team.alive}v${a.enemy.alive} — disengage. Flash is for living.`;
+      ? `${c}: ${a.team.alive}v${a.enemy.alive} — ${threat} is the fed threat here; staying or backing off is your call.`
+      : `${c}: ${a.team.alive}v${a.enemy.alive} against you — disengaging is an option.`;
     return { line: clip(line), score: 94, why: "losing disengage" };
   }
 
@@ -142,21 +143,21 @@ export function makeShotcall(
     if ((phase === "winning" || man >= 1) && deadStr && focus) {
       if (role === "CARRY") {
         return {
-          line: clip(`${c}: ${deadStr} down — DPS ${focus} max range, then tower.`),
+          line: clip(`${c}: ${deadStr} dead — ${focus} is the lowest-HP/fed threat in this fight; the tower is also open.`),
           score: 94,
           why: "adc win fight",
         };
       }
       if (role === "SUPPORT") {
         return {
-          line: clip(`${c}: ${deadStr} down — zone ${focus}, keep ADC alive, then plates.`),
+          line: clip(`${c}: ${deadStr} dead — ${focus} is the lowest-HP/fed threat in this fight; zoning or peeling are options.`),
           score: 93,
           why: "sup win fight",
         };
       }
       if (role === "JUNGLE") {
         return {
-          line: clip(`${c}: ${deadStr} down — collapse ${focus}, then YOU start obj.`),
+          line: clip(`${c}: ${deadStr} dead — ${focus} is the lowest-HP/fed threat in this fight; an objective is also open.`),
           score: 95,
           why: "jg win fight",
         };
@@ -165,14 +166,14 @@ export function makeShotcall(
       if (opener) {
         return {
           line: clip(
-            `${c}: ${deadStr} down — ${opener} ${focus}, then plates. Don't overstay.`
+            `${c}: ${deadStr} dead — ${focus} is the lowest-HP/fed threat in this fight; ${opener} is in your kit.`
           ),
           score: 95,
           why: "mid win fight kit",
         };
       }
       return {
-        line: clip(`${c}: ${deadStr} down — finish ${focus}, take tower. No fog.`),
+        line: clip(`${c}: ${deadStr} dead — ${focus} is the lowest-HP/fed threat in this fight; the tower is also open.`),
         score: 94,
         why: "win fight generic",
       };
@@ -184,8 +185,8 @@ export function makeShotcall(
       return {
         line: clip(
           threat
-            ? `${c}: bodyblock for ${carry}. ${threat} is hunting — you are the wall.`
-            : `${c}: peel ${carry}. Face-checking is not your job.`
+            ? `${c}: ${threat} is the fed threat and ${carry} is your carry — peel or zone are options.`
+            : `${c}: teamfight — peeling ${carry} or zoning are options.`
         ),
         score: 92,
         why: "sup teamfight",
@@ -195,8 +196,8 @@ export function makeShotcall(
       return {
         line: clip(
           threat
-            ? `${c}: max range only. ${threat} wants you first — don't gift it.`
-            : `${c}: attack what's free. Never flash first in a 50/50.`
+            ? `${c}: ${threat} is the fed threat in this fight; your range vs them matters.`
+            : `${c}: even fight — your position decides what's safe to hit.`
         ),
         score: 91,
         why: "adc teamfight",
@@ -206,8 +207,8 @@ export function makeShotcall(
       return {
         line: clip(
           focus
-            ? `${c}: path ${focus}. Flash only if the kill is free.`
-            : `${c}: hit highest value in range. No random smite fights.`
+            ? `${c}: ${focus} is the lowest-HP/fed threat in this fight.`
+            : `${c}: several targets in range — HP and threat level are the variables.`
         ),
         score: 92,
         why: "jg teamfight",
@@ -217,7 +218,7 @@ export function makeShotcall(
     if (opener && focus) {
       return {
         line: clip(
-          `${c}: ${opener} on ${focus} — if they turn, you leave. Secondary only.`
+          `${c}: ${focus} is the lowest-HP/fed threat in this fight; ${opener} is in your kit.`
         ),
         score: 93,
         why: "mid teamfight kit",
@@ -225,7 +226,7 @@ export function makeShotcall(
     }
     if (focus) {
       return {
-        line: clip(`${c}: secondary on ${focus}. First-in is how you int this.`),
+        line: clip(`${c}: ${focus} is the lowest-HP/fed threat in this fight.`),
         score: 90,
         why: "mid teamfight",
       };
@@ -236,7 +237,7 @@ export function makeShotcall(
   if (a.fightLight === "green" && deadStr) {
     if (role === "JUNGLE") {
       return {
-        line: clip(`${c}: ${deadStr} ${respTag} — set the obj. You're the tempo.`),
+        line: clip(`${c}: ${deadStr} dead ${respTag} — an objective or camps are options.`),
         score: 90,
         why: "green jg",
       };
@@ -244,8 +245,8 @@ export function makeShotcall(
     return {
       line: clip(
         g >= 1300 && !noRecall
-          ? `${c}: ${deadStr} ${respTag} — plates then base ${g}g.`
-          : `${c}: ${deadStr} ${respTag} — plates/obj. Free map, take it.`
+          ? `${c}: ${deadStr} dead ${respTag} — plates or a base with ${g}g are options.`
+          : `${c}: ${deadStr} dead ${respTag} — plates or an objective are options.`
       ),
       score: 90,
       why: "green convert",
@@ -255,7 +256,7 @@ export function makeShotcall(
   // ── 6. Sitting on a buy while soft ──
   if (!noRecall && g >= 1400 && hp != null && hp < 55 && phase === "idle") {
     return {
-      line: clip(`${c}: ${g}g at ${hp}% — crash one wave, base. Stop walking a shutdown.`),
+      line: clip(`${c}: ${g}g unspent at ${hp}% HP — base is an option.`),
       score: 78,
       why: "gold sit soft",
     };
@@ -264,7 +265,7 @@ export function makeShotcall(
   // ── 7. Threat respect out of fight ──
   if (threat && a.enemiesUltUnlockedAlive.includes(threat) && (hp == null || hp < 50)) {
     return {
-      line: clip(`${c}: ${threat} ult unlocked and you're soft — don't walk up first.`),
+      line: clip(`${c}: ${threat} is level 6+ with ult unlocked and you're at ${hp ?? "low"}% HP — worth knowing before you walk up.`),
       score: 68,
       why: "ult respect soft",
     };

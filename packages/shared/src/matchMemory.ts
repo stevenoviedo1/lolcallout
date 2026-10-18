@@ -343,22 +343,8 @@ export function predictNextMistakes(
     out.push(`PREDICT: keeps missing converts — hammer plates/obj language next green light.`);
   }
 
-  // Enemy approaching ult unlock
-  for (const p of ctx.scoreboard) {
-    if (p.level === 5 && !p.isDead) {
-      const isEnemy =
-        a.enemyDeadNames.includes(p.championName) ||
-        a.fedEnemies.some((f) => f.startsWith(p.championName)) ||
-        // crude: if not on ally dead list and not you
-        p.championName !== c;
-      // only mention if they're likely enemy via fed or we have fight context
-      if (a.fedEnemies.some((f) => f.startsWith(p.championName))) {
-        out.push(`PREDICT: ${p.championName} one level from ult — respect spike soon.`);
-      } else if (isEnemy && a.enemiesUltUnlockedAlive.length < 3) {
-        // skip noisy
-      }
-    }
-  }
+  // Riot policy: no opponent prediction (e.g. "one level from ult").
+  // Visible facts like "X is level 6" are handled elsewhere.
 
   return out.slice(0, 6);
 }

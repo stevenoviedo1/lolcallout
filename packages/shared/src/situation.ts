@@ -271,19 +271,19 @@ function kindInstruction(kind: SituationBrief["kind"]): string {
     case "death":
       return "Death review: one habit for NEXT SPAWN (fix). Be specific from gold/levels/numbers.";
     case "tempo":
-      return "LIVE GUIDE while alive: tell them what to DO in the next 20 seconds (farm, base, group, roam, shove, hold, poke). Present tense. Coach, don't wait for death.";
+      return "LIVE AWARENESS while alive: name what is visible on the board and 2–3 options (farm, base, group, roam, shove, hold, poke) with what each depends on. The player decides — no orders, no countdowns.";
     case "low_hp":
-      return "Critical HP: survive first — base/reset (SR) or max range (ARAM).";
+      return "Critical HP: say so; options are base/reset (SR) or max range (ARAM).";
     case "base":
-      return "Sitting on gold: crash if needed then BASE for item spike.";
+      return "Sitting on gold: say the amount; base for the item spike is an option.";
     case "kill":
-      return "You/team just got a kill: convert NOW (plate, obj, reset, don't chase fog).";
+      return "You/team just got a kill: name who is dead and the options it opens (plate, obj, reset).";
     case "numbers":
-      return "Numbers mismatch: play the board (hold if down, push/obj if up).";
+      return "Numbers mismatch: state the alive count and what options it opens or closes.";
     case "level_up":
       return "Power spike: how to use this level in the next fight window.";
     case "objective":
-      return "Objective event: group, trade, or take free side — one call.";
+      return "Objective event: state it; options are group, trade, or side — player picks.";
     case "shutdown":
       return "You are fed: protect lead, vision, no solo fog.";
     case "match_start":
@@ -291,7 +291,7 @@ function kindInstruction(kind: SituationBrief["kind"]): string {
     case "game_end":
       return "Game over: one honest line then player will see full summary.";
     default:
-      return "One concrete next action.";
+      return "One visible fact plus the options it opens.";
   }
 }
 
@@ -322,27 +322,27 @@ export function localFallbackLine(
   if (kind === "low_hp") {
     if (noRecall) return "Low health — max range only, do not hard commit.";
     return gold >= 900
-      ? `Base now — low health with ${gold} gold.`
-      : "Reset. You're too low to take this fight.";
+      ? `Low HP and ${gold} unspent. Base is an option.`
+      : "Low HP. Resetting or playing at range are both options.";
   }
 
   if (kind === "base") {
     if (noRecall) return `Next death, shop first — ${gold} gold banked.`;
-    return `Base for spike — ${gold} gold unspent.`;
+    return `${gold} gold unspent — basing for the spike is an option.`;
   }
 
   if (kind === "kill") {
     return board.enemyDead >= 2
-      ? `${champ}: enemies down — take plates or start obj before they spawn.`
-      : `${champ}: kill timer — shove two waves then move mid first.`;
+      ? `${board.enemyDead} enemies are dead — plates, an objective, or a base are all options.`
+      : `Kill secured — shoving, roaming, or basing are options depending on your wave.`;
   }
 
   if (kind === "numbers") {
     if (board.allyDead >= 2)
-      return `${champ}: ${board.allyDead} allies down — hold tower range, nearest wave only.`;
+      return `${board.allyDead} allies are dead — tower range or the nearest wave are options while they're down.`;
     if (board.enemyDead >= 2)
-      return `${champ}: ${board.enemyDead} enemies down — closest tower or start obj now.`;
-    return `${champ}: only take fights that match alive count.`;
+      return `${board.enemyDead} enemies are dead — the closest tower or an objective are options.`;
+    return `Alive counts are even — worth weighing before any fight.`;
   }
 
   if (kind === "level_up" && you) {
