@@ -40,6 +40,7 @@ export function normalizeAllGameData(
     items: Array.isArray(p.items)
       ? p.items.map((i: any) => i?.displayName).filter(Boolean)
       : [],
+    itemIds: extractItemIds(p),
     laneRole: extractLaneRole(p),
   }));
 
@@ -92,12 +93,17 @@ export function normalizeAllGameData(
   }
 
   const eventsRaw: any[] = data?.events?.Events ?? data?.events ?? [];
-  const recentEvents: GameEvent[] = eventsRaw.slice(-15).map((e) => ({
+  const toEvent = (e: any): GameEvent => ({
     type: mapEventType(e.EventName ?? e.eventName ?? e.type),
     gameTime: Number(e.EventTime ?? e.gameTime ?? 0),
     message: summarizeEvent(e),
     payload: e,
-  }));
+  });
+  const recentEvents: GameEvent[] = eventsRaw.slice(-15).map(toEvent);
+  const objectiveEvents: GameEvent[] = eventsRaw
+    .filter((e) => /dragon|baron|herald|turret|inhib/i.test(String(e?.EventName ?? e?.eventName ?? "")))
+    .slice(-60)
+    .map(toEvent);
 
   return {
     source,
@@ -110,6 +116,7 @@ export function normalizeAllGameData(
     you,
     scoreboard,
     recentEvents,
+    objectiveEvents,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -175,6 +182,7 @@ function playerToYou(p: any, active: any): ActiveYou {
     items: Array.isArray(p.items)
       ? p.items.map((i: any) => i?.displayName).filter(Boolean)
       : [],
+    itemIds: extractItemIds(p),
     laneRole: extractLaneRole(p) || extractLaneRole(active),
     abilityLevels: abilityLevels || undefined,
   };
@@ -244,6 +252,11 @@ function extractSpells(active: any): string[] {
   return [a.summonerSpellOne?.displayName, a.summonerSpellTwo?.displayName].filter(
     Boolean
   ) as string[];
+}
+
+function extractItemIds(p: any): number[] {
+  if (!Array.isArray(p?.items)) return [];
+  return p.items.map((i: any) => Number(i?.itemID)).filter((n: number) => Number.isFinite(n) && n > 0);
 }
 
 function extractItems(active: any): string[] {

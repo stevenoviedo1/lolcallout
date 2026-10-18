@@ -19,6 +19,7 @@ import { hpPct, modeFullLabel, modeLabel } from "./lib/modeLabel";
 import { changePassword, isStrongPassword } from "./lib/authApi";
 import { resetCoachVoice, setLayoutPersisted, useAppStore } from "./stores/useAppStore";
 import { LOCAL_VISION_AVAILABLE } from "./lib/api";
+import { HabitsPanel } from "./components/HabitsPanel";
 
 export default function App({
   membershipActive = false,
@@ -857,6 +858,7 @@ export default function App({
         {showHistory && (
           <div className="history-panel">
             <h2>Match history</h2>
+            <HabitsPanel />
             <p className="muted">Real live matches only.</p>
             <button type="button" className="chip" onClick={() => void pruneHistory()}>
               Clean empty sessions

@@ -1,0 +1,11 @@
+{
+  "ddragon": "16.20.1",
+  "callouts": 3000,
+  "summaries": 300,
+  "champSelect": 300,
+  "train": 3420,
+  "eval": 180,
+  "policyRejectedCandidates": 89,
+  "maxEstTokens": 743,
+  "distinctChampionsAsYou": 172
+}

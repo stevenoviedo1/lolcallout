@@ -33,6 +33,12 @@ import {
   synthesizeEliteCallouts,
   updateMatchMemory,
   detectModeProfile,
+  buildSituationSummary,
+  formatSituationSummary,
+  formatMatchupCard,
+  champSelectMatchup,
+  formatHabitsForAi,
+  habitPlanLine,
 } from "@riftcoach/shared";
 import { buildPlaybookBlock, inferRole } from "./playbooks.js";
 
@@ -285,8 +291,22 @@ ${boardOnly || "(empty)"}`;
     /* optional */
   }
 
+  let summaryBlock = "";
+  let matchupBlock = "";
+  try {
+    const summary = buildSituationSummary(context);
+    summaryBlock = formatSituationSummary(summary);
+    if (summary.matchup) matchupBlock = formatMatchupCard(summary.matchup);
+  } catch {
+    /* optional */
+  }
+
   return `## Live context (source=${context.source})
 Role: ${role}
+
+${summaryBlock}
+
+${matchupBlock}
 
 ${playbooks}
 
@@ -406,6 +426,18 @@ export function buildUserPayload(req: ChatRequest): string {
   if (req.matchMemory) {
     parts.push(formatMemoryForAi(req.matchMemory));
   }
+  if (req.intent === "champ_select" && req.champSelect) {
+    const card = champSelectMatchup(req.champSelect);
+    if (card) parts.push(formatMatchupCard(card));
+  }
+  if (req.habits && (req.intent === "champ_select" || req.intent === "summary")) {
+    const h = formatHabitsForAi(req.habits);
+    if (h) {
+      parts.push(
+        `${h}\n${req.intent === "champ_select" ? "Work the #1 habit into the pre-game plan" : "Tie the debrief to these habits"}: e.g. "${habitPlanLine(req.habits)}"`
+      );
+    }
+  }
   if (req.recentCallouts?.length) {
     parts.push(
       `## DO_NOT_REPEAT (recent spoken tips — new wording + new angle required)\n${req.recentCallouts
@@ -455,3 +487,61 @@ MODE LOCKS:
 - Summoner's Rift: wave, base, vision, objective.
 
 Follow the requested output format exactly (e.g. CALLOUT:, LIVE:/NEXT:, CAUSE:/FIX:, POST-GAME SUMMARY). Keep it short.`;
+
+/**
+ * Tiny system prompt for the fine-tuned lolcoach model (training/lolcoach_train.jsonl
+ * uses exactly this). Policy is baked in by the training targets.
+ */
+export const LOLCOACH_SYSTEM_PROMPT_TINY = `You are LOLCallout, a League of Legends awareness coach. Phrase the computed SITUATION SUMMARY as one short spoken line: visible facts plus options, never orders, countdowns, enemy cooldowns or predictions. The player decides. Post-game and champ select may be direct.`;
+
+/** "KIND: kill. …" → "kill" */
+export function calloutKindFromMessage(msg: string | undefined): string {
+  const m = /KIND:\s*([a-z_]+)/i.exec(msg || "");
+  return m ? m[1].toLowerCase() : "generic";
+}
+
+/**
+ * Compact payload (<~400 tokens): the analysis is done in code, the model only phrases.
+ * Same format as the training data — used when serving a fine-tuned model.
+ */
+export function buildCompactUserPayload(
+  req: ChatRequest,
+  opts: { summary?: import("@riftcoach/shared").SituationSummary } = {}
+): string {
+  const parts: string[] = [];
+  const persona = parseCoachPersonality(req.personality) === "hype" ? "bro" : "friend";
+  if (req.intent === "champ_select") {
+    parts.push(`TASK: champ_select · STYLE: ${persona}`);
+    const card = champSelectMatchup(req.champSelect);
+    if (card) parts.push(formatMatchupCard(card));
+    else if (req.message) parts.push(req.message.slice(0, 400));
+    const h = formatHabitsForAi(req.habits);
+    if (h) parts.push(h);
+    parts.push("FORMAT: PLAN: / MATCHUP: / ITEMS: / HABIT: lines.");
+    return parts.join("\n");
+  }
+  if (req.intent === "summary") {
+    parts.push(`TASK: summary · STYLE: ${persona}`);
+    const y = req.context?.you;
+    if (req.context && y) {
+      parts.push(formatSituationSummary(opts.summary ?? buildSituationSummary(req.context)));
+      parts.push(`FINAL ${y.championName} ${y.kills}/${y.deaths}/${y.assists} ${y.creeps} CS`);
+      if (req.context.deathReport) parts.push(`DEATHS early ${req.context.deathReport.early} mid ${req.context.deathReport.mid} late ${req.context.deathReport.late} · pattern ${req.context.deathReport.dominant ?? "none"}`);
+    }
+    const h = formatHabitsForAi(req.habits);
+    if (h) parts.push(h);
+    parts.push("FORMAT: POST-GAME SUMMARY with Grade, 3-4 bullets, Habit, Next game focus.");
+    return parts.join("\n");
+  }
+  const kind = req.intent === "callout" ? calloutKindFromMessage(req.message) : req.intent || "free";
+  parts.push(`TASK: ${req.intent === "callout" ? "callout" : kind} · KIND: ${kind} · STYLE: ${persona}`);
+  if (req.context?.inGame && req.context.you) {
+    parts.push(formatSituationSummary(opts.summary ?? buildSituationSummary(req.context)));
+  } else {
+    parts.push("Not in an active game.");
+  }
+  if (req.recentCallouts?.length) parts.push(`DO_NOT_REPEAT: ${req.recentCallouts.slice(-3).join(" | ")}`);
+  if (req.intent !== "callout" && req.message) parts.push(`PLAYER: ${req.message.slice(0, 200)}`);
+  parts.push(req.intent === "callout" ? "FORMAT: CALLOUT: <one sentence>" : "FORMAT: 1-2 sentences.");
+  return parts.join("\n");
+}

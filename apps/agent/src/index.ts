@@ -10,6 +10,8 @@ import { fetchChampSelect } from "./lcu.js";
 import { registerCoachRoutes } from "./coach/index.js";
 import { localAiStatus } from "./coach/ollama.js";
 import { pairLoggingEnabled, pairLogPath } from "./coach/pairLog.js";
+import { GameHabitTracker } from "@riftcoach/shared";
+import { loadProfile, resetProfile, saveGame, profilePath } from "./habitStore.js";
 
 const PORT = Number(process.env.AGENT_PORT || 3847);
 const HOST = process.env.AGENT_HOST || "127.0.0.1";
@@ -23,6 +25,16 @@ let sawLiveGame = false;
 let wasInLiveGame = false;
 const detector = new EventDetector();
 const deathTracker = new DeathTracker();
+const habitTracker = new GameHabitTracker();
+
+function finishHabitGame() {
+  const rec = habitTracker.finish();
+  habitTracker.reset();
+  if (rec) {
+    saveGame(rec);
+    console.log(`[agent] habits: recorded ${rec.champion} (${rec.deaths} deaths) → ${profilePath()}`);
+  }
+}
 let champSelect = null as Awaited<ReturnType<typeof fetchChampSelect>>;
 
 function allowMock(): boolean {
@@ -47,6 +59,8 @@ async function poll() {
       (latest.gameTime || 0) > 90 &&
       (live.gameTime || 0) < 50;
     if (!wasInLiveGame || newMatchMidstream) {
+      if (newMatchMidstream) finishHabitGame();
+      else habitTracker.reset();
       deathTracker.reset();
       detector.resetSoft();
     }
@@ -66,11 +80,13 @@ async function poll() {
     usingMock = false;
     lastError = "";
     detector.ingest(latest);
+    if (live.source === "live") habitTracker.ingest(latest);
     return;
   }
 
   if (wasInLiveGame) {
     wasInLiveGame = false;
+    finishHabitGame();
     const ended: GameContext = {
       ...emptyContext(),
       source: "none",
@@ -162,7 +178,19 @@ app.get("/deaths", (_req, res) => {
   res.json(deathTracker.report());
 });
 
-registerCoachRoutes(app);
+/** Local habit profile (this PC only — never sent to the LOLCallout server). */
+app.get("/habits", (_req, res) => {
+  res.json({ profile: loadProfile(), path: profilePath(), local: true });
+});
+
+app.post("/habits/reset", (_req, res) => {
+  res.json({ profile: resetProfile(), path: profilePath(), local: true });
+});
+
+registerCoachRoutes(app, {
+  champSelect: () => champSelect || null,
+  habits: () => loadProfile(),
+});
 
 app.post("/capture", async (_req, res) => {
   if (!CAPTURE_ENABLED) {

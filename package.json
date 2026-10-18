@@ -22,7 +22,10 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:agent:log-pairs": "npm run dev:log-pairs -w @riftcoach/agent",
     "gen:modelfile": "npm run build -w @riftcoach/prompts && node scripts/gen-modelfile.mjs",
-    "pairs": "node scripts/log-pairs.mjs"
+    "pairs": "node scripts/log-pairs.mjs",
+    "test": "node --import tsx --test packages/shared/test/*.test.ts scripts/test/*.test.mjs",
+    "ddragon": "node scripts/fetch-ddragon.mjs",
+    "training:data": "npm run build -w @riftcoach/shared && npm run build -w @riftcoach/prompts && node scripts/make-training-data.mjs"
   },
   "devDependencies": {
     "concurrently": "^10.0.4",

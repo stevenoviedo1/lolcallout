@@ -1,4 +1,4 @@
-import { toNaturalTalk, isTelegraphicLine } from "../packages/shared/dist/personality.js";
+import { toNaturalTalk, isTelegraphicLine } from "../packages/shared/dist/src/personality.js";
 
 const cases = [
   ["Ahri: 18% 1500g — BASE.", "hype"],

@@ -7,6 +7,9 @@ import {
   gradeMatch,
   parseCoachPersonality,
   strategyNextAction,
+  champSelectMatchup,
+  habitPlanLine,
+  buildSituationSummary,
 } from "@riftcoach/shared";
 
 export function isDeathCoaching(req: ChatRequest, context?: GameContext): boolean {
@@ -96,13 +99,28 @@ ${g.goals.map((x) => `${x.passed ? "PASS" : "FAIL"} — ${x.detail}`).join("\n")
 • ${g.habits[0] || "Stack leads into objectives."}
 • ${g.habits[1] || "Track death patterns."}
 • ${g.habits[2] || "Base with gold."}
-NOTE: Built-in summary — start local AI (Ollama) for a richer narrative.`;
+${req.habits?.top.length ? `HABITS (last ${req.habits.top[0].window} games, this PC):\n${req.habits.top.map((h) => `• ${h.line} — ${h.fix}.`).join("\n")}\n` : ""}NOTE: Built-in summary — start local AI (Ollama) for a richer narrative.`;
   }
 
   if (req.intent === "champ_select") {
-    return `PLAN: Play safe first 3 levels — trade only with advantage.
-MATCHUP: Respect enemy kits; don't ego all-in level 2 without vision.
-BAN/NOTE: Built-in champ-select assist (start local AI for live plans).`;
+    const card = champSelectMatchup(req.champSelect);
+    const habit = habitPlanLine(req.habits);
+    const matchup = card?.opponent
+      ? `${card.you} vs ${card.opponent} — ${card.rangeNote}. Their kit: ${card.opponentKit}.`
+      : "Respect enemy kits; don't ego all-in level 2 without vision.";
+    const threats = card
+      ? `Enemy comp: ${card.threats.AD} AD, ${card.threats.AP} AP, ${card.threats.TANK} tank · ${card.healers.length} healers, ${card.shielders.length} shielders.`
+      : "";
+    return [
+      `PLAN: Trade only with an advantage the first 3 levels; hit your first item before forcing 50/50s.`,
+      `MATCHUP: ${matchup}`,
+      threats && `THREATS: ${threats}`,
+      ...(card?.itemNotes ?? []).map((n) => `ITEMS: ${n}`),
+      habit && `HABIT: ${habit}`,
+      `NOTE: Built-in champ-select assist (start local AI for richer plans).`,
+    ]
+      .filter(Boolean)
+      .join("\n");
   }
 
   if (!context?.inGame) {
@@ -118,6 +136,12 @@ NOTE: Local AI offline — built-in coach lines only.`;
   }
 
   if (req.intent === "item" || /item|buy|shop/i.test(req.message)) {
+    const note = buildSituationSummary(context).matchup?.itemNotes[0];
+    if (note) {
+      return `VERDICT: Options
+ACTION: ${Math.round(you.currentGold)}g unspent. ${note}
+NOTE: Built-in reply (local AI offline).`;
+    }
     return `VERDICT: Yes
 ACTION: Spend ~${Math.round(you.currentGold)}g on your next major component — don't sit on gold past a full item spike.
 NOTE: Built-in reply (local AI offline).`;

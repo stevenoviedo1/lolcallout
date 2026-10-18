@@ -3,8 +3,23 @@
  * streamed from a small model on the player's PC via Ollama.
  */
 import type { Express, Response } from "express";
-import type { CalloutRequest, ChatRequest, GameContext } from "@riftcoach/shared";
-import { buildUserPayload, COACH_SYSTEM_PROMPT_SMALL } from "@riftcoach/prompts";
+import type { CalloutRequest, ChampSelectState, ChatRequest, GameContext, HabitProfile } from "@riftcoach/shared";
+import {
+  buildCompactUserPayload,
+  buildUserPayload,
+  COACH_SYSTEM_PROMPT_SMALL,
+  LOLCOACH_SYSTEM_PROMPT_TINY,
+} from "@riftcoach/prompts";
+
+/**
+ * Fine-tuned models (trained on training/lolcoach_train.jsonl) get the compact
+ * payload they were trained on. Opt in with LOLCALLOUT_COMPACT_PAYLOAD=1 or a
+ * model tag containing "-ft" (e.g. lolcoach-ft). Base models keep the full payload.
+ */
+export function useCompactPayload(model?: string): boolean {
+  if (process.env.LOLCALLOUT_COMPACT_PAYLOAD === "1") return true;
+  return !!model && /-ft\b/.test(model);
+}
 import { localAiStatus, streamOllamaChat, type LocalAiStatus } from "./ollama.js";
 import { isDeathCoaching, offlineCoachReply } from "./offline.js";
 import { logPair } from "./pairLog.js";
@@ -53,13 +68,15 @@ export function generationParams(req: ChatRequest, context?: GameContext) {
   return { maxTokens, temperature, historyTurns };
 }
 
-export function buildMessages(req: ChatRequest, history: Turn[], context?: GameContext) {
+export function buildMessages(req: ChatRequest, history: Turn[], context?: GameContext, model?: string) {
   const { historyTurns } = generationParams(req, context);
   // Vision is disabled in local mode: strip any frame so the payload never mentions one.
   const textOnly: ChatRequest = { ...req, frameBase64: undefined, frameMime: undefined };
-  const user = buildUserPayload({ ...textOnly, context: req.context ?? context });
+  const compact = useCompactPayload(model);
+  const full = { ...textOnly, context: req.context ?? context };
+  const user = compact ? buildCompactUserPayload(full) : buildUserPayload(full);
   const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
-    { role: "system", content: COACH_SYSTEM_PROMPT_SMALL },
+    { role: "system", content: compact ? LOLCOACH_SYSTEM_PROMPT_TINY : COACH_SYSTEM_PROMPT_SMALL },
     ...(historyTurns ? history.slice(-historyTurns) : []),
     { role: "user", content: user },
   ];
@@ -74,7 +91,7 @@ export async function* streamLocalCoach(
 ): AsyncGenerator<string> {
   const context = req.context;
   const { maxTokens, temperature } = generationParams(req, context);
-  const { messages, user } = buildMessages(req, history, context);
+  const { messages, user } = buildMessages(req, history, context, model);
   let full = "";
   for await (const t of streamOllamaChat({
     model,
@@ -89,7 +106,7 @@ export async function* streamLocalCoach(
   logPair({
     intent: req.intent,
     model,
-    system: COACH_SYSTEM_PROMPT_SMALL,
+    system: messages[0].content,
     history: messages.slice(1, -1),
     user,
     response: full,
@@ -179,14 +196,27 @@ export function calloutToChat(body: CalloutRequest): ChatRequest {
   };
 }
 
-export function registerCoachRoutes(app: Express) {
+export interface CoachRouteDeps {
+  champSelect?: () => ChampSelectState | null;
+  habits?: () => HabitProfile | null;
+}
+
+/** Attach local-only state the desktop doesn't send (champ select, habit profile). */
+export function enrichRequest(body: ChatRequest, deps: CoachRouteDeps): ChatRequest {
+  const out = { ...body };
+  if (out.intent === "champ_select" && !out.champSelect && deps.champSelect) out.champSelect = deps.champSelect();
+  if ((out.intent === "champ_select" || out.intent === "summary") && !out.habits && deps.habits) out.habits = deps.habits();
+  return out;
+}
+
+export function registerCoachRoutes(app: Express, deps: CoachRouteDeps = {}) {
   app.get("/ai/status", async (req, res) => {
     const s = await localAiStatus(req.query.refresh === "1");
     res.json({ ...s, mode: "local", vision: false, busy });
   });
 
   app.post("/ai/chat", async (req, res) => {
-    const body = (req.body || {}) as ChatRequest & { sessionId?: string };
+    const body = enrichRequest((req.body || {}) as ChatRequest, deps) as ChatRequest & { sessionId?: string };
     if (!body.message?.trim()) return res.status(400).json({ error: "message required" });
     const status = await localAiStatus();
     if (!status.model) {
@@ -219,11 +249,10 @@ export function registerCoachRoutes(app: Express) {
   /** Post-game summary — returns JSON (raw text) so the desktop can store it. */
   app.post("/ai/summary", async (req, res) => {
     const context = req.body?.context as GameContext | undefined;
-    const chat: ChatRequest = {
-      message: "Generate post-game summary for this match.",
-      intent: "summary",
-      context,
-    };
+    const chat: ChatRequest = enrichRequest(
+      { message: "Generate post-game summary for this match.", intent: "summary", context },
+      deps
+    );
     const status = await localAiStatus();
     if (!status.model || busy) {
       return res.json({ raw: offlineCoachReply(chat, context), source: "seed", hint: status.hint });
