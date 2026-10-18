@@ -7,6 +7,9 @@ import { EventDetector } from "./events.js";
 import { capturePrimaryScreenJpeg } from "./capture.js";
 import { DeathTracker } from "./deaths.js";
 import { fetchChampSelect } from "./lcu.js";
+import { registerCoachRoutes } from "./coach/index.js";
+import { localAiStatus } from "./coach/ollama.js";
+import { pairLoggingEnabled, pairLogPath } from "./coach/pairLog.js";
 
 const PORT = Number(process.env.AGENT_PORT || 3847);
 const HOST = process.env.AGENT_HOST || "127.0.0.1";
@@ -159,6 +162,8 @@ app.get("/deaths", (_req, res) => {
   res.json(deathTracker.report());
 });
 
+registerCoachRoutes(app);
+
 app.post("/capture", async (_req, res) => {
   if (!CAPTURE_ENABLED) {
     return res.status(403).json({ error: "Capture disabled" });
@@ -171,6 +176,10 @@ app.post("/capture", async (_req, res) => {
 app.listen(PORT, HOST, () => {
   console.log(`[agent] LOLCallout listening on http://${HOST}:${PORT}`);
   console.log(`[agent] mock mode: ${MOCK_MODE}`);
+  if (pairLoggingEnabled()) console.log(`[agent] training pair log ON → ${pairLogPath()}`);
+  void localAiStatus(true).then((s) =>
+    console.log(`[agent] local AI: ${s.model ? `ready (${s.model})` : s.hint}`)
+  );
   void poll();
   setInterval(() => void poll(), 1000);
 });

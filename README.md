@@ -7,13 +7,13 @@
 | Feature | Status |
 |---------|--------|
 | Live Client Data HUD | ✅ |
-| Streaming coach chat (SpaceXAI) | ✅ |
+| Streaming coach chat (local AI via Ollama — free, on your PC) | ✅ |
 | Quick chips | ✅ |
 | Proactive callouts (death / gold / HP / objectives) | ✅ |
 | Death review intent | ✅ |
 | Post-game summary + history | ✅ |
 | Compact layout | ✅ |
-| Optional screen capture vision | ✅ |
+| Screen capture vision | ⏸ disabled with local AI |
 | Browser push-to-talk (Chrome/Edge) | ✅ |
 | No memory injection | ✅ |
 
@@ -25,8 +25,8 @@
 cd riftcoach
 npm install
 cp .env.example .env
-# Optional but recommended:
-# XAI_API_KEY=... from https://console.x.ai
+# Local AI (free): install Ollama, then
+# ollama pull qwen2.5:3b-instruct   (see docs/LOCAL_AI.md)
 npm run build -w @riftcoach/shared
 npm run build -w @riftcoach/prompts
 npm run dev
@@ -49,11 +49,9 @@ Open **http://127.0.0.1:5173**
 5. After the match ends, a **post-game summary** is generated automatically
 6. Open **History** to reopen past sessions
 
-### Vision (opt-in)
+### Vision
 
-- **Analyze screen** — one capture of the primary monitor via local agent
-- Settings → attach capture on every ask (heavier / privacy tradeoff)
-- No game process injection
+- Disabled while AI runs locally (small text-only model). No screenshots are captured or sent.
 
 ### Voice
 
@@ -67,9 +65,9 @@ League Live Client :2999
         ↓ poll (agent)
   Event detector → signals (death, gold, etc.)
         ↓
-  Desktop UI ←→ Coach API ←→ SpaceXAI (grok-4.5)
+  Desktop UI ←→ Agent /ai/* ←→ Ollama on this PC (lolcoach / qwen2.5:3b-instruct)
         ↓
-  data/sessions.json (history)
+  Account API (auth · Stripe · sessions/history — no AI)
 ```
 
 See [docs/COMPLIANCE.md](docs/COMPLIANCE.md).
@@ -77,20 +75,20 @@ See [docs/COMPLIANCE.md](docs/COMPLIANCE.md).
 ## Env
 
 ```env
-XAI_API_KEY=
-XAI_MODEL=grok-4.5
+LOLCOACH_MODEL=lolcoach
+LOLCOACH_FALLBACK_MODEL=qwen2.5:3b-instruct
 AGENT_USE_MOCK=true
-AGENT_CAPTURE=true
 ```
 
-Without `XAI_API_KEY`, demo coach replies still stream using live/mock stats.
+Without Ollama (or without a pulled model), built-in coach lines still work using live/mock stats.
+See [docs/LOCAL_AI.md](docs/LOCAL_AI.md).
 
 ## Monorepo
 
 ```
 apps/desktop   React companion UI
-apps/api       Coach API + sessions + summaries
-apps/agent     Live Client + events + capture
+apps/api       Account API: auth, Stripe, sessions, stored summaries (no AI)
+apps/agent     Live Client + events + local AI coach (Ollama)
 packages/shared
 packages/prompts
 docs/COMPLIANCE.md

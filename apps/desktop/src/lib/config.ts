@@ -26,7 +26,7 @@ export function allowLocalAuth(): boolean {
 }
 
 /**
- * Cloud account API (auth, sessions, TTS, coach).
+ * Cloud account API (auth, Stripe, sessions, optional TTS). AI runs locally via the agent.
  * Packaged app always points here via Electron query params too.
  */
 export const CLOUD_API_URL =

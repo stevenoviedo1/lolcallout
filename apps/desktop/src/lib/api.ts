@@ -90,6 +90,43 @@ export class MembershipRequiredError extends Error {
   }
 }
 
+/** Local Ollama not running / model not pulled / GPU busy → caller uses local seed lines. */
+export class LocalAiUnavailableError extends Error {
+  code = "LOCAL_AI_UNAVAILABLE" as const;
+  busy: boolean;
+  constructor(message: string, busy = false) {
+    super(message);
+    this.name = "LocalAiUnavailableError";
+    this.busy = busy;
+  }
+}
+
+export interface LocalAiStatus {
+  ollamaRunning: boolean;
+  model: string | null;
+  primaryModel: string;
+  fallbackModel: string;
+  installedModels: string[];
+  hint: string | null;
+  setupCommands: string[];
+  mode: "local";
+  vision: false;
+}
+
+/** Asks the local agent whether Ollama is up and a coach model is installed. */
+export async function fetchLocalAiStatus(refresh = false): Promise<LocalAiStatus | null> {
+  try {
+    const res = await fetch(`${AGENT_URL}/ai/status${refresh ? "?refresh=1" : ""}`);
+    if (!res.ok) return null;
+    return (await res.json()) as LocalAiStatus;
+  } catch {
+    return null;
+  }
+}
+
+/** Last SSE meta hint from the agent (e.g. "Local AI offline — …"). */
+export let lastLocalAiHint: string | null = null;
+
 async function readSseStream(
   res: Response,
   onToken: (t: string) => void
@@ -109,8 +146,11 @@ async function readSseStream(
         parsed.upgradeUrl
       );
     }
-    if (res.status === 401) {
-      throw new Error("Sign in required for AI coaching");
+    if (res.status === 503 || res.status === 429 || parsed.code?.startsWith("LOCAL_AI_")) {
+      throw new LocalAiUnavailableError(
+        parsed.error || "Local AI unavailable",
+        parsed.code === "LOCAL_AI_BUSY"
+      );
     }
     throw new Error(parsed.error || errText || `Request failed ${res.status}`);
   }
@@ -134,7 +174,9 @@ async function readSseStream(
           type: string;
           text?: string;
         };
-        if (payload.type === "token" && payload.text) {
+        if (payload.type === "meta") {
+          lastLocalAiHint = (payload as { hint?: string | null }).hint ?? null;
+        } else if (payload.type === "token" && payload.text) {
           full += payload.text;
           onToken(payload.text);
         } else if (payload.type === "done" && payload.text) {
@@ -156,16 +198,12 @@ export async function streamChat(
   body: ChatRequest,
   onToken: (t: string) => void
 ): Promise<string> {
-  const res = await fetch(`${API_URL}/v1/sessions/${sessionId}/chat`, {
+  // AI runs on this PC: local agent → Ollama. Screenshots are never sent (vision off in local mode).
+  const res = await fetch(`${AGENT_URL}/ai/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...body, frameBase64: undefined, frameMime: undefined, sessionId }),
   });
-  if (res.status === 404) {
-    const err = new Error("session not found");
-    (err as Error & { code?: string }).code = "SESSION_NOT_FOUND";
-    throw err;
-  }
   return readSseStream(res, onToken);
 }
 
@@ -187,16 +225,11 @@ export async function streamCallout(
     recentCallouts: opts?.recentCallouts,
     matchMemory: opts?.matchMemory,
   };
-  const res = await fetch(`${API_URL}/v1/sessions/${sessionId}/callout`, {
+  const res = await fetch(`${AGENT_URL}/ai/callout`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...body, sessionId }),
   });
-  if (res.status === 404) {
-    const err = new Error("session not found");
-    (err as Error & { code?: string }).code = "SESSION_NOT_FOUND";
-    throw err;
-  }
   return readSseStream(res, onToken);
 }
 
@@ -205,10 +238,22 @@ export async function endSession(
   context: GameContext,
   result: "win" | "loss" | "unknown" = "unknown"
 ): Promise<{ summary: SessionSummary; session: CoachSession }> {
+  // Summary is generated locally (Ollama or built-in lines); server only stores it.
+  let summaryRaw = "";
+  try {
+    const local = await fetch(`${AGENT_URL}/ai/summary`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ context }),
+    });
+    if (local.ok) summaryRaw = ((await local.json()) as { raw?: string }).raw || "";
+  } catch {
+    /* agent offline — server stores a placeholder */
+  }
   const res = await fetch(`${API_URL}/v1/sessions/${sessionId}/end`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ context, result }),
+    body: JSON.stringify({ context, result, summaryRaw }),
   });
   if (!res.ok) {
     let parsed: { error?: string; code?: string; upgradeUrl?: string } = {};
@@ -228,7 +273,11 @@ export async function endSession(
   return res.json();
 }
 
+/** Vision is disabled while AI runs locally (small text models can't read screenshots). */
+export const LOCAL_VISION_AVAILABLE = false;
+
 export async function captureScreen(): Promise<{ base64: string; mime: string } | null> {
+  if (!LOCAL_VISION_AVAILABLE) return null;
   try {
     const res = await fetch(`${AGENT_URL}/capture`, { method: "POST" });
     if (!res.ok) return null;

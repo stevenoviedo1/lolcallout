@@ -1,15 +1,11 @@
-# Smoke: AI coach callout path on local API
+# Smoke: LOCAL AI coach callout path (agent -> Ollama on this PC)
 $ErrorActionPreference = "Stop"
-$api = "http://127.0.0.1:8787"
+$agent = "http://127.0.0.1:3847"
 
-Write-Host "==> Health" -ForegroundColor Cyan
-$h = Invoke-RestMethod "$api/health"
-if (-not $h.aiConfigured) { throw "XAI_API_KEY not configured" }
-Write-Host "AI ok model=$($h.model)"
-
-Write-Host "==> Session" -ForegroundColor Cyan
-$sess = Invoke-RestMethod "$api/v1/sessions" -Method POST -ContentType "application/json" -Body "{}"
-$id = $sess.session.id
+Write-Host "==> Local AI status" -ForegroundColor Cyan
+$h = Invoke-RestMethod "$agent/ai/status?refresh=1"
+if (-not $h.model) { throw "Local AI not ready: $($h.hint)" }
+Write-Host "Local AI ok model=$($h.model)"
 
 $json = @'
 {
@@ -56,7 +52,7 @@ $json = @'
 
 Write-Host "==> Callout stream" -ForegroundColor Cyan
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
-$resp = Invoke-WebRequest "$api/v1/sessions/$id/callout" -Method POST -ContentType "application/json; charset=utf-8" -Body $json -TimeoutSec 40
+$resp = Invoke-WebRequest "$agent/ai/callout" -Method POST -ContentType "application/json; charset=utf-8" -Body $json -TimeoutSec 40
 $sw.Stop()
 $text = (
   $resp.Content -split "`n" |
@@ -69,10 +65,5 @@ Write-Host "latencyMs=$($sw.ElapsedMilliseconds)"
 Write-Host "REPLY: $text"
 if (-not $text -or $text.Length -lt 8) { throw "Empty coach reply" }
 if ($text -match 'you died') { throw "Narration leak" }
-
-Write-Host "==> TTS" -ForegroundColor Cyan
-$ttsBody = '{"text":"Asol base now for your spike then stack Q.","provider":"xai","voice":"leo"}'
-$tts = Invoke-WebRequest "$api/v1/tts" -Method POST -ContentType "application/json" -Body $ttsBody -TimeoutSec 30
-Write-Host "tts status=$($tts.StatusCode) bytes=$($tts.RawContentLength)"
 
 Write-Host "SMOKE OK" -ForegroundColor Green

@@ -1,103 +1,31 @@
 import { toSpeakable } from "@riftcoach/shared";
 
-export type TtsProvider = "browser" | "xai" | "elevenlabs";
+/**
+ * Optional cloud TTS. Only ElevenLabs remains (owner-configured, off unless
+ * ELEVENLABS_API_KEY is set). Default voice path is the browser's free
+ * speechSynthesis on the player's PC.
+ */
+export type TtsProvider = "browser" | "elevenlabs";
 
 export function ttsStatus() {
   return {
-    xai: Boolean(process.env.XAI_API_KEY),
     elevenlabs: Boolean(process.env.ELEVENLABS_API_KEY),
-    defaultProvider: (process.env.TTS_PROVIDER as TtsProvider) || "xai",
-    xaiVoices: ["eve", "ara", "leo", "rex", "sal"],
+    defaultProvider: "browser" as TtsProvider,
   };
 }
 
 export async function synthesizeSpeech(opts: {
   text: string;
   provider?: TtsProvider;
-  /** xAI: eve|ara|leo|rex|sal · ElevenLabs: voice_id */
+  /** ElevenLabs voice_id */
   voice?: string;
 }): Promise<{ buffer: Buffer; mime: string; spoken: string; provider: string }> {
   const spoken = toSpeakable(opts.text, 280);
   if (!spoken) throw new Error("Empty speakable text");
-
-  const provider =
-    opts.provider ||
-    (process.env.TTS_PROVIDER as TtsProvider) ||
-    (process.env.ELEVENLABS_API_KEY ? "elevenlabs" : process.env.XAI_API_KEY ? "xai" : "browser");
-
-  if (provider === "elevenlabs") {
-    return elevenLabsTts(spoken, opts.voice || process.env.ELEVENLABS_VOICE_ID);
+  if (!process.env.ELEVENLABS_API_KEY) {
+    throw new Error("No cloud TTS configured — use the browser voice.");
   }
-  if (provider === "xai") {
-    return xaiTts(spoken, opts.voice || process.env.XAI_TTS_VOICE || "leo");
-  }
-  throw new Error("No cloud TTS configured. Set XAI_API_KEY or ELEVENLABS_API_KEY.");
-}
-
-async function xaiTts(text: string, voice: string): Promise<{
-  buffer: Buffer;
-  mime: string;
-  spoken: string;
-  provider: string;
-}> {
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) throw new Error("XAI_API_KEY missing");
-
-  // Prefer a lower, coach-like voice; leo/rex often work for competitive male tone
-  const voiceName = (voice || "leo").toLowerCase();
-
-  const res = await fetch("https://api.x.ai/v1/tts", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      text,
-      voice: voiceName,
-      // common optional fields — ignored if unsupported
-      format: "mp3",
-      language: "en",
-    }),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`xAI TTS ${res.status}: ${errText.slice(0, 300)}`);
-  }
-
-  const contentType = res.headers.get("content-type") || "";
-  // Some APIs return JSON with base64; others return raw audio
-  if (contentType.includes("application/json")) {
-    const json = (await res.json()) as {
-      audio?: string;
-      data?: string;
-      audio_base64?: string;
-      url?: string;
-    };
-    const b64 = json.audio || json.data || json.audio_base64;
-    if (b64) {
-      return {
-        buffer: Buffer.from(b64, "base64"),
-        mime: "audio/mpeg",
-        spoken: text,
-        provider: "xai",
-      };
-    }
-    throw new Error("xAI TTS JSON response missing audio");
-  }
-
-  const ab = await res.arrayBuffer();
-  return {
-    buffer: Buffer.from(ab),
-    mime: contentType.includes("wav")
-      ? "audio/wav"
-      : contentType.includes("ogg")
-        ? "audio/ogg"
-        : "audio/mpeg",
-    spoken: text,
-    provider: "xai",
-  };
+  return elevenLabsTts(spoken, opts.voice || process.env.ELEVENLABS_VOICE_ID);
 }
 
 async function elevenLabsTts(

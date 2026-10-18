@@ -1,5 +1,6 @@
 /**
- * Cost / frequency controls.
+ * Frequency controls. AI now runs locally (free), so caps exist only to keep
+ * the player's GPU from being hammered mid-fight and to avoid voice spam.
  * Coach still only speaks when insight score clears the threshold (no timer filler).
  * "Urgent only" narrows which cleared insights may voice — default OFF so the guide
  * can talk whenever the board is worth a line.
@@ -26,9 +27,12 @@ export interface CostSaverPrefs {
    */
   urgentVoiceOnly: boolean;
   maxSpokenPerGame: number;
-  /** Always use AI for cues when session + key available */
+  /** Use local AI for cues when Ollama + model are available */
   backgroundAiCallouts: boolean;
+  /** Soft per-match ceiling (local = free; this is a sanity cap, not a budget) */
   maxAiCalloutsPerGame: number;
+  /** Minimum gap between local AI generations so the GPU stays free for the game */
+  minAiGapMs: number;
 }
 
 export const DEFAULT_COST_SAVER: CostSaverPrefs = {
@@ -37,8 +41,10 @@ export const DEFAULT_COST_SAVER: CostSaverPrefs = {
   /** Cap spoken lines per match (cost + less spam) */
   maxSpokenPerGame: 36,
   backgroundAiCallouts: true,
-  /** Cloud AI callouts are expensive — keep tight; local seed covers the rest */
-  maxAiCalloutsPerGame: 22,
+  /** Local AI is free — generous cap; the rate gap is what protects FPS */
+  maxAiCalloutsPerGame: 120,
+  /** ≥8s between local generations (agent also runs one generation at a time) */
+  minAiGapMs: 8_000,
 };
 
 /** High-impact moments when "impact only" is ON */
@@ -72,8 +78,12 @@ export function shouldSpeakCallout(
 
 export function shouldRunAiCallout(
   prefs: CostSaverPrefs,
-  aiCalloutsSoFar: number
+  aiCalloutsSoFar: number,
+  lastAiAt = 0,
+  now = Date.now()
 ): boolean {
   if (prefs.backgroundAiCallouts !== true) return false;
-  return aiCalloutsSoFar < prefs.maxAiCalloutsPerGame;
+  const gap = prefs.minAiGapMs ?? DEFAULT_COST_SAVER.minAiGapMs;
+  if (lastAiAt && now - lastAiAt < gap) return false;
+  return aiCalloutsSoFar < (prefs.maxAiCalloutsPerGame ?? DEFAULT_COST_SAVER.maxAiCalloutsPerGame);
 }
