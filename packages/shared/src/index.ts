@@ -34,6 +34,8 @@ export interface PlayerScoreline {
   isDead?: boolean;
   summonerSpells?: string[];
   items?: string[];
+  /** Data Dragon item ids (Live Client allPlayers[].items[].itemID) */
+  itemIds?: number[];
   /** Live Client role/lane string when present (TOP, JUNGLE, …) — not map coords */
   laneRole?: string;
 }
@@ -60,6 +62,8 @@ export interface ActiveYou {
   maxMana?: number;
   summonerSpells?: string[];
   items?: string[];
+  /** Data Dragon item ids when known */
+  itemIds?: number[];
   isDead?: boolean;
   /** Live Client role/lane when present */
   laneRole?: string;
@@ -96,6 +100,8 @@ export interface GameContext {
   you: ActiveYou | null;
   scoreboard: PlayerScoreline[];
   recentEvents: GameEvent[];
+  /** Every objective event this game (dragon/baron/herald/turret/inhib) — not capped like recentEvents */
+  objectiveEvents?: GameEvent[];
   updatedAt: string;
   /** Inferred or LCU role */
   inferredRole?: string;
@@ -211,6 +217,10 @@ export interface ChatRequest {
   recentCallouts?: string[];
   /** Optional sticky match memory from client */
   matchMemory?: import("./matchMemory.js").MatchMemory;
+  /** Champ select snapshot (agent attaches it for intent champ_select) */
+  champSelect?: ChampSelectState | null;
+  /** Local cross-game habit profile (never sent to the server) */
+  habits?: import("./habits.js").HabitProfile | null;
 }
 
 export interface CalloutRequest {
@@ -502,3 +512,7 @@ export {
   type ThreatModel,
 } from "./brainModels.js";
 
+export * from "./knowledge.js";
+export * from "./gameState.js";
+export * from "./habits.js";
+export * from "./policy.js";

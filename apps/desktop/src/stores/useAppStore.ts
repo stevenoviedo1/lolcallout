@@ -21,6 +21,7 @@ import {
   explainCoachSilence,
   emptyWatchState,
   buildLockInBrief,
+  champSelectMatchup,
   detectModeProfile,
   computeMatchAnalytics,
   computeCoachBrain,
@@ -1085,6 +1086,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       allies: cs?.allies,
       modeLabel: "Detect SR / ARAM / Arena when game starts",
     });
+    const card = champSelectMatchup(cs);
+    const matchupLines = card
+      ? [
+          "",
+          "MATCHUP:",
+          ...(card.opponent ? [`• vs ${card.opponent} — ${card.rangeNote}`] : []),
+          `• Enemy comp: ${card.threats.AD} AD · ${card.threats.AP} AP · ${card.threats.TANK} tank · ${card.healers.length} healers`,
+          ...card.itemNotes.map((n) => `• ${n}`),
+        ]
+      : [];
     // Show local lock-in card immediately
     set((s) => ({
       messages: [
@@ -1105,6 +1116,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             "",
             "WATCH FOR:",
             ...brief.watchFor.map((w) => `• ${w}`),
+            ...matchupLines,
           ].join("\n"),
           createdAt: new Date().toISOString(),
           meta: { kind: "champ_select", source: "local" },

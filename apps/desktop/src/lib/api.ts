@@ -323,3 +323,22 @@ export async function createCheckout(email: string, founders: boolean): Promise<
   if (!res.ok || !data.url) throw new Error(data.error || "Checkout failed");
   return data.url;
 }
+
+/** Local habit profile from the agent (this PC only, never the server). */
+export async function fetchHabits(): Promise<{ profile: import("@riftcoach/shared").HabitProfile; path: string } | null> {
+  try {
+    const res = await fetch(`${AGENT_URL}/habits`);
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function resetHabits(): Promise<{ profile: import("@riftcoach/shared").HabitProfile; path: string } | null> {
+  try {
+    const res = await fetch(`${AGENT_URL}/habits/reset`, { method: "POST" });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}

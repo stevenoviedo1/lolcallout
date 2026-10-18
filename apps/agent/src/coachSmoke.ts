@@ -154,6 +154,22 @@ async function main() {
   assert.equal(req.max_tokens, 360);
   ok("chat is text-only (vision disabled), hype free max_tokens 360");
 
+  // 4) Fine-tuned model mode → compact payload + tiny system prompt (matches training JSONL)
+  const { LOLCOACH_SYSTEM_PROMPT_TINY } = await import("@riftcoach/prompts");
+  process.env.LOLCALLOUT_COMPACT_PAYLOAD = "1";
+  const fixture = JSON.parse(
+    (await import("node:fs")).readFileSync(new URL("../../../fixtures/mock-live-context.json", import.meta.url), "utf8")
+  ) as GameContext;
+  r = await sse(`${base}/ai/callout`, { ...callout, context: fixture });
+  assert.equal(r.status, 200);
+  req = captured.at(-1)!;
+  const cm = req.messages as { role: string; content: string }[];
+  assert.equal(cm[0].content, LOLCOACH_SYSTEM_PROMPT_TINY);
+  assert.match(cm.at(-1)!.content, /SITUATION SUMMARY/);
+  assert.ok(cm.at(-1)!.content.length < 3000);
+  delete process.env.LOLCALLOUT_COMPACT_PAYLOAD;
+  ok("compact payload mode → tiny system prompt + situation summary (training format)");
+
   agent.close();
   mock.close();
   console.log(`\nlocal coach smoke: ${pass} passed`);

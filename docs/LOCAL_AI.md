@@ -52,6 +52,26 @@ Each line has `system`, `history`, `user` (the exact payload), `response`, `inte
 **Review and hand-fix responses** before training — the goal is to teach the small model the
 voice and the Riot rules (options, not orders; no hidden-info guesses).
 
+## Owner: synthetic training data (no games needed)
+
+```bash
+npm run training:data        # builds shared + prompts, then node scripts/make-training-data.mjs
+```
+
+Writes `training/lolcoach_train.jsonl` (95%) and `training/lolcoach_eval.jsonl` (5%) plus
+`training/stats.json`. ~3000 live callouts, ~300 post-game summaries, ~300 champ-select plans across
+~170 champions, in chat format (`system` = `LOLCOACH_SYSTEM_PROMPT_TINY`, `user` = compact payload
+from `buildCompactUserPayload`, `assistant` = target). Every callout target passes
+`checkLivePolicy` (packages/shared/src/policy.ts); rows stay under ~800 tokens, so
+`max_seq_length=1024` fits an 8GB GPU (RTX 5060) with QLoRA, batch 2, grad-accum 8.
+
+Serve the fine-tune with the same compact format: create it as `lolcoach-ft`
+(`LOLCOACH_MODEL=lolcoach-ft`) or set `LOLCALLOUT_COMPACT_PAYLOAD=1`; the agent then sends the tiny
+system prompt + SITUATION SUMMARY it was trained on. Base models keep the long payload.
+
+Game knowledge comes from Data Dragon: `npm run ddragon` refreshes
+`packages/shared/data/{champions,items}.json` after a patch (commit the result).
+
 ## Owner: fine-tuning lolcoach (QLoRA with Unsloth)
 
 1. Get a GPU box (a free Colab T4 works for 3B) and install Unsloth:

@@ -34,3 +34,12 @@ When you add a new live line, check it:
 - Does it state a visible fact?
 - Does it offer options?
 - Does it avoid any order, countdown-to-act, or prediction about an opponent?
+
+## Automated check
+
+`packages/shared/src/policy.ts` (`checkLivePolicy`) rejects live lines with "now", go/leave/collapse/focus,
+imperative openers (take/push/base/… as a command), cooldown or ult-state talk, countdowns ("in 40s") and
+opponent predictions. Unit tests cover it (`npm test`), and `scripts/make-training-data.mjs` refuses to
+write any callout target that fails it. Post-game and champ-select text is not filtered (prescriptive is OK there).
+Knowledge-based lines (matchup/itemization from Data Dragon, item-gold diff, visible level 6/11/16 and
+finished items) only use scoreboard-visible data.

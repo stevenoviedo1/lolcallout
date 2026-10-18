@@ -15,6 +15,7 @@
 - Live game stats are read **locally** on your PC via Riot’s Live Client Data endpoint when you run the agent
 - **AI coaching runs locally on your PC** (via Ollama). Your game data and coach prompts are **not sent to any AI provider**
 - We do not capture or upload screenshots
+- **Habit memory stays on your PC.** The agent keeps rolling stats from your recent games (deaths while ahead, deaths near objectives, CS/min, control wards bought, gold unspent at death, champion played) in `~/.lolcallout/profile.json` on your computer. It is used only for your local post-game summary, champ-select plan and the "My habits" panel. It is **never sent to our server**, and you can wipe it any time with **Reset habits** (or by deleting the file)
 
 ## How we use data
 - Provide coaching, history, and voice features

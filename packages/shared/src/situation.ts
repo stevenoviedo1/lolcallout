@@ -25,6 +25,7 @@ import { buildEnemyThreatForecast } from "./champKnowledge.js";
 import { buildFieldState, formatFieldStateForAi } from "./fieldState.js";
 import { buildCombatIntel, formatCombatIntelForAi } from "./combatIntel.js";
 import { readBattle, formatBattleForAi } from "./battleReader.js";
+import { buildSituationSummary, summarySeedLine } from "./gameState.js";
 
 export interface SituationBrief {
   kind: CalloutKind | "kill" | "match_start" | "numbers";
@@ -314,6 +315,16 @@ export function localFallbackLine(
       : "Spawn, buy if needed, one safe wave, then group.";
   }
 
+  // Knowledge-backed, more specific seed (items, numbers, objectives, farm).
+  if (you && !noRecall && ["base", "kill", "numbers", "level_up", "tempo"].includes(kind)) {
+    try {
+      const seed = summarySeedLine(buildSituationSummary(ctx), kind);
+      if (seed) return seed;
+    } catch {
+      /* fall through to classic seeds */
+    }
+  }
+
   if (kind === "tempo") {
     const t = buildTempoCoachLine(ctx);
     if (t) return t.live;
@@ -334,7 +345,7 @@ export function localFallbackLine(
   if (kind === "kill") {
     return board.enemyDead >= 2
       ? `${board.enemyDead} enemies are dead — plates, an objective, or a base are all options.`
-      : `Kill secured — shoving, roaming, or basing are options depending on your wave.`;
+      : `Nice kill — shoving, roaming, or basing are options depending on your wave.`;
   }
 
   if (kind === "numbers") {
@@ -347,30 +358,30 @@ export function localFallbackLine(
 
   if (kind === "level_up" && you) {
     return noRecall
-      ? `Level ${you.level} — short trade, then reset spacing.`
-      : `Level ${you.level} spike — trade or shove, then move.`;
+      ? `Level ${you.level} — a short trade or resetting your spacing are options.`
+      : `Level ${you.level} spike — trading or shoving are options.`;
   }
 
   if (kind === "objective") {
-    if (isAramMode(ctx)) return "Tower — group and take free plates if safe.";
-    return "Objective — group or trade the opposite side.";
+    if (isAramMode(ctx)) return "Tower is open — grouping for free plates is an option if it's safe.";
+    return "Objective is up — grouping for it or trading the opposite side are options.";
   }
 
   if (kind === "shutdown") {
     return noRecall
-      ? "You're fed. Don't chase alone after the kill."
-      : "Protect the lead — vision first, no fog walks.";
+      ? "You're fed — chasing alone after a kill is where shutdowns happen."
+      : "You've got a shutdown on you — vision before fog walks keeps the lead.";
   }
 
   if (kind === "match_start") {
-    return `${champ}: first wave clean, look for level two advantage.`;
+    return `${champ}: a clean first wave sets up the level two race.`;
   }
 
   if (kind === "game_end") {
     return "Game over. Check your three habits on screen.";
   }
 
-  return `${champ}: one clear job — farm, base, or group.`;
+  return `${champ}: farming, basing or grouping are all options at this point.`;
 }
 
 /** Priority for coach queue (higher = more urgent). */

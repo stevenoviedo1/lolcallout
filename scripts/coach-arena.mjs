@@ -2,27 +2,27 @@
  * Coach arena — roleplay stress test for battle reading + elite callouts.
  * Run: node scripts/coach-arena.mjs
  */
-import { computeMatchAnalytics } from "../packages/shared/dist/analytics.js";
-import { readBattle } from "../packages/shared/dist/battleReader.js";
+import { computeMatchAnalytics } from "../packages/shared/dist/src/analytics.js";
+import { readBattle } from "../packages/shared/dist/src/battleReader.js";
 import {
   synthesizeEliteCallouts,
   pickEliteCallout,
-} from "../packages/shared/dist/eliteCoach.js";
+} from "../packages/shared/dist/src/eliteCoach.js";
 import {
   emptyMatchMemory,
   updateMatchMemory,
-} from "../packages/shared/dist/matchMemory.js";
-import { detectModeProfile } from "../packages/shared/dist/modes.js";
+} from "../packages/shared/dist/src/matchMemory.js";
+import { detectModeProfile } from "../packages/shared/dist/src/modes.js";
 import {
   detectCoachInsights,
   emptyWatchState,
   pickSpeakableInsight,
-} from "../packages/shared/dist/insights.js";
-import { isObviousLine } from "../packages/shared/dist/coachLines.js";
-import { deepReasonBoard } from "../packages/shared/dist/deepReason.js";
-import { computeOracleBrain } from "../packages/shared/dist/oracleBrain.js";
-import { computeTacticalBrain } from "../packages/shared/dist/tacticalBrain.js";
-import { computeObjClockBrain } from "../packages/shared/dist/objClockBrain.js";
+} from "../packages/shared/dist/src/insights.js";
+import { isObviousLine } from "../packages/shared/dist/src/coachLines.js";
+import { deepReasonBoard } from "../packages/shared/dist/src/deepReason.js";
+import { computeOracleBrain } from "../packages/shared/dist/src/oracleBrain.js";
+import { computeTacticalBrain } from "../packages/shared/dist/src/tacticalBrain.js";
+import { computeObjClockBrain } from "../packages/shared/dist/src/objClockBrain.js";
 
 function you(o = {}) {
   return {
