@@ -573,20 +573,16 @@ export function buildEnemyThreatForecast(opts: {
 }): string[] {
   const lines: string[] = [];
   if (opts.fedEnemies[0]) {
-    lines.push(
-      `PAST: ${opts.fedEnemies[0]} is fed — they will look for picks and side angles.`
-    );
-    lines.push(
-      `FUTURE (projected): expect ${opts.fedEnemies[0]} to force when they see you alone — group or ward.`
-    );
+    // Riot policy: visible fact only — no opponent prediction.
+    lines.push(`PAST: ${opts.fedEnemies[0]} is fed (visible on the scoreboard).`);
   }
   if (opts.enemyDead >= 2) {
     lines.push("PAST: enemies just died — free window now.");
-    lines.push("FUTURE: window closes on their respawn — convert plates/obj immediately.");
+    lines.push("OPTIONS: plates, an objective, or a base while they are dead — player decides.");
   }
   if (opts.allyDead >= 2) {
     lines.push("PAST: allies down — map is dark for you.");
-    lines.push("FUTURE: enemies will invade/vision — hold until respawns.");
+    lines.push("OPTIONS: tower range or waiting for allies — player decides.");
   }
   if (opts.pressure === "losing") {
     lines.push("FUTURE: they will siege and hunt — no ego 1v1s.");

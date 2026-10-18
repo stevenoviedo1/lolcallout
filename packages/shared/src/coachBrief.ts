@@ -426,10 +426,10 @@ export function buildSignalCoachLines(
     const hp = Math.round(hpPercent(you) ?? 0);
     // ARAM: you cannot base — max range / don't commit
     const live = noRecall
-      ? `Low health — max range only. Don't hard commit.`
+      ? `Low health — max range is an option; hard commits are risky.`
       : you.currentGold >= 1000
-        ? `Base now — ${hp} percent HP, gold in pocket.`
-        : `Reset now — ${hp} percent HP, don't fight.`;
+        ? `Low HP (${hp} percent) and gold unspent. Base is an option.`
+        : `${hp} percent HP — resetting is an option; fights are risky.`;
     return {
       title: noRecall ? "Spacing" : "Reset",
       detail: live,
@@ -604,7 +604,7 @@ export function buildTempoCoachLine(
     candidates.push(
       aram
         ? `${champ}: ${board.enemyDead} enemies down — shove plates, stop before fountain.`
-        : `${champ}: ${board.enemyDead} enemies down — closest tower or start obj before spawn.`
+        : `${board.enemyDead} enemies are dead — the closest tower or an objective are options.`
     );
   }
 

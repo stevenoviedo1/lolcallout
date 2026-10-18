@@ -109,19 +109,19 @@ export function offlineCoachReply(req: ChatRequest, context?: GameContext): stri
     if (/low hp|play safe|reset/i.test(req.message) && you) {
       const g = Math.round(you.currentGold);
       return g >= 1000
-        ? `CALLOUT: BASE now — low health with ~${g}g in pocket.\nNOTE: Don't gift a free shutdown.`
-        : `CALLOUT: RESET or max range only — health is critical.\nNOTE: No all-ins until topped up.`;
+        ? `CALLOUT: Low HP and ${g} unspent. Base is an option.\nNOTE: Staying risks a shutdown — your call.`
+        : `CALLOUT: Health is critical. Resetting or max range are options.\nNOTE: All-ins at this HP are risky.`;
     }
     if (/gold|item spike|base/i.test(req.message) && you) {
-      return `CALLOUT: BASE for your item spike — ~${Math.round(you.currentGold)}g unspent.\nNOTE: Crash wave first if safe.`;
+      return `CALLOUT: ${Math.round(you.currentGold)}g unspent — basing for the item spike is an option.\nNOTE: Wave state matters for timing.`;
     }
     if (/shutdown|protect lead|fed|ult/i.test(req.message)) {
-      return `CALLOUT: Respect the threat — vision first, no free walk-ups.\nNOTE: Only high-% fights.`;
+      return `CALLOUT: Their fed threat is alive — vision and numbers are worth checking.\nNOTE: You decide which fights to take.`;
     }
     if (/level/i.test(req.message) && you) {
-      return `CALLOUT: Level ${you.level} spike — short trade or shove, then move.\nNOTE: Spend the tempo before it decays.`;
+      return `CALLOUT: Level ${you.level} — trading, shoving, or roaming are options.\nNOTE: Your call.`;
     }
-    return `CALLOUT: Play the next high-% decision — convert if numbers, hold if not.\nNOTE: Set XAI_API_KEY for richer live coaching.`;
+    return `CALLOUT: Check the alive count — with numbers, objectives open up; without, holding is an option.\nNOTE: Set XAI_API_KEY for richer live coaching.`;
   }
 
   if (req.intent === "summary") {

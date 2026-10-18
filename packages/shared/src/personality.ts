@@ -181,26 +181,26 @@ export function toNaturalTalk(
     if (/base|leave/i.test(rest)) {
       return bro
         ? finishSentence(
-            `Yo you're sitting at ${pct} percent with ${gold} gold — just base bro. That stack is a free shutdown if you stay`
+            `Yo you're sitting at ${pct} percent with ${gold} gold — base is an option bro, staying risks a shutdown`
           )
         : finishSentence(
-            `You're at ${pct} percent with ${gold} gold in pocket. The best move is to base now, not take another fight`
+            `Low HP and ${gold} unspent. Base is an option`
           );
     }
     if (/max range|shop on death|don't donate|backline/i.test(rest)) {
       return bro
         ? finishSentence(
-            `You're at ${pct} with ${gold} gold banked — max range only, shop on death. Don't donate that`
+            `You're at ${pct} with ${gold} gold banked — max range is an option, or spend it on death`
           )
         : finishSentence(
-            `You're at ${pct} percent holding ${gold} gold. Stay max range only, and spend it on death if you have to`
+            `You're at ${pct} percent holding ${gold} gold. Max range is an option, or spend it on death`
           );
     }
     if (/leave|wave/i.test(rest)) {
       return finishSentence(
         bro
-          ? `Nah leave the wave — you're ${pct} percent with ${gold} gold. Staying is free LP for them`
-          : `You're at ${pct} percent with ${gold} gold. Give the wave and base — fighting here is low percent`
+          ? `You're ${pct} percent with ${gold} gold — leaving the wave or staying is your call, staying is risky`
+          : `You're at ${pct} percent with ${gold} gold. Giving the wave to base is an option`
       );
     }
   }
@@ -212,20 +212,20 @@ export function toNaturalTalk(
     if (/base|leave/i.test(rest)) {
       return finishSentence(
         bro
-          ? `You're at ${pct} percent bro — leave that fight and base. Staying is free for them`
-          : `You're at ${pct} percent. Leave the fight and base; you have no value if you die here`
+          ? `You're at ${pct} percent bro — backing off to base is an option, staying is risky`
+          : `You're at ${pct} percent mid-fight. Backing off to base is an option`
       );
     }
     if (/max range|frontline|backline/i.test(rest)) {
       return finishSentence(
         bro
-          ? `You're at ${pct} — max range only, don't frontline that`
-          : `You're at ${pct} percent. Stay max range and don't frontline this fight`
+          ? `You're at ${pct} — frontlining is risky, max range is an option`
+          : `You're at ${pct} percent. Frontlining is risky; max range is an option`
       );
     }
     if (/disengage|no all-in/i.test(rest)) {
       return finishSentence(
-        `You're at ${pct} percent — disengage and play max range. Don't all-in`
+        `You're at ${pct} percent — disengaging or max range are options`
       );
     }
   }
@@ -245,15 +245,15 @@ export function toNaturalTalk(
         // Keep champion capitalization (Zed not zed)
         return finishSentence(
           bro
-            ? `You've got ${m[1]} gold, but ${cleaned}. Convert the map first, then base`
-            : `You have ${m[1]} gold, but ${cleaned}. Convert first, then base if you need the item`
+            ? `You've got ${m[1]} gold, and ${cleaned}. Map plays or a base are both options`
+            : `You have ${m[1]} gold, and ${cleaned}. Map plays or a base are both options`
         );
       }
     }
     return finishSentence(
       bro
-        ? `You've got ${m[1]} gold, but ${rest}. Take the free stuff first, then base`
-        : `You have ${m[1]} gold, but ${rest}. Convert the map first, then base if you need the item`
+        ? `You've got ${m[1]} gold, and ${rest}. Map plays or a base are both options`
+        : `You have ${m[1]} gold, and ${rest}. Map plays or a base are both options`
     );
   }
 
@@ -268,13 +268,13 @@ export function toNaturalTalk(
       if (/baron|inhib|plates|obj|tower/i.test(rest)) {
         return finishSentence(
           bro
-            ? `That's an ace — go baron, inhib, or plates right now. Don't chase fog for style points`
-            : `You have an ace. Take baron, an inhib, or plates now, and don't chase into the fog`
+            ? `That's an ace — baron, inhib, or plates are all open`
+            : `You have an ace. Baron, an inhib, or plates are all options`
         );
       }
       if (/base/i.test(rest)) {
         return finishSentence(
-          `You have an ace — take one objective, then base with your gold. No fountain heroics`
+          `You have an ace — an objective or a base with your gold are both options`
         );
       }
     }
@@ -288,21 +288,21 @@ export function toNaturalTalk(
       if (/plates|obj|tower|inhib|base|convert|free map/i.test(rest)) {
         return finishSentence(
           bro
-            ? `${downPhrase} bro — take the tower or the obj. Don't run into fog for nothing`
-            : `${downPhrase}. Take the tower or the objective while you have the window, and don't chase into fog`
+            ? `${downPhrase} bro — tower or obj are both open`
+            : `${downPhrase}. The tower or the objective are options while they're dead`
         );
       }
       if (/start obj|set the obj|YOU start/i.test(rest)) {
         return finishSentence(
           bro
-            ? `${downPhrase} — you start the objective and let your team crash waves into it`
-            : `${downPhrase}. Start the objective yourself and have your allies crash waves`
+            ? `${downPhrase} — the objective or camps are options`
+            : `${downPhrase}. The objective is an option while they're dead`
         );
       }
       if (/DPS|max range|finish|charm|collapse|zone/i.test(rest)) {
         const action = rest.replace(/\.$/, "").replace(/^then\s+/i, "");
         return finishSentence(
-          `${downPhrase}. ${capitalize(action.toLowerCase())}, then convert — don't overstay`
+          `${downPhrase}. ${capitalize(action.toLowerCase())} is one option`
         );
       }
       // Generic "X down — rest"
@@ -371,28 +371,28 @@ export function toNaturalTalk(
   if (m) {
     return finishSentence(
       bro
-        ? `Peel your carry right now — ${m[1]} is the delete button`
-        : `Peel for your carry. ${m[1]} is the threat that can delete them`
+        ? `${m[1]} is the fed threat near your carry — peeling is an option`
+        : `${m[1]} is the fed threat near your carry. Peeling is an option`
     );
   }
   m = body.match(/bodyblock for (\w+)\.?\s*(\w+) is hunting/i);
   if (m) {
     return finishSentence(
       bro
-        ? `${m[2]} is hunting ${m[1]}. Bodyblock for them — you're the wall right now`
-        : `${m[2]} is hunting ${m[1]}. Bodyblock and peel so your carry stays alive`
+        ? `${m[2]} is the fed threat and ${m[1]} is your carry — peeling is an option`
+        : `${m[2]} is the fed threat and ${m[1]} is your carry. Peeling is an option`
     );
   }
   m = body.match(/bodyblock for (\w+).*?(\w+) is hunting/i);
   if (m) {
     return finishSentence(
-      `${m[2]} is hunting ${m[1]}. Bodyblock for them — you're the wall right now`
+      `${m[2]} is the fed threat and ${m[1]} is your carry — peeling is an option`
     );
   }
   m = body.match(/peel (\w+)\.?\s*(\w+) is the delete/i);
   if (m) {
     return finishSentence(
-      `Peel for ${m[1]} — ${m[2]} is the delete button, not your all-in target`
+      `${m[2]} is the fed threat near ${m[1]} — peeling is an option`
     );
   }
 
@@ -434,14 +434,14 @@ export function toNaturalTalk(
       const mm = rest.match(/look\s+(.+?)\s+on\s+(\w+)/i)!;
       return finishSentence(
         bro
-          ? `In this fight, look for ${mm[1]} on ${mm[2]} — and leave if they turn`
-          : `In this fight, look for ${mm[1]} on ${mm[2]}, and leave if they turn on you`
+          ? `In this fight, ${mm[2]} is the lowest-HP/fed threat — ${mm[1]} is in your kit`
+          : `In this fight, ${mm[2]} is the lowest-HP/fed threat. ${mm[1]} is in your kit`
       );
     }
     if (/bodyblock for (\w+)/i.test(rest)) {
       const who = rest.match(/bodyblock for (\w+)/i)![1];
       return finishSentence(
-        `Bodyblock for ${who} and keep the threat off them — you're the wall right now`
+        `${who} is your carry in this fight — peeling is an option`
       );
     }
     return finishSentence(
@@ -456,14 +456,14 @@ export function toNaturalTalk(
   if (m) {
     return finishSentence(
       bro
-        ? `Play secondary on ${m[1]} — first-in is how you int this`
-        : `Play as a secondary engage on ${m[1]}. Going first is how you throw this fight`
+        ? `${m[1]} is the lowest-HP/fed threat in this fight`
+        : `${m[1]} is the lowest-HP/fed threat in this fight`
     );
   }
   m = body.match(/^path (\w+)\.?\s*(.*)$/i);
   if (m) {
     return finishSentence(
-      `Path onto ${m[1]}. Only flash if the kill is free`
+      `${m[1]} is the lowest-HP/fed threat in this fight`
     );
   }
 
@@ -489,14 +489,14 @@ export function toNaturalTalk(
   m = body.match(/^(.+?)\s+in ~(\d+)s\s*[—–-]\s*(.+)$/i);
   if (m) {
     return finishSentence(
-      `${m[1]} is up in about ${m[2]} seconds. ${capitalize(m[3].replace(/\.$/, ""))}`
+      `${m[1]} spawns soon. ${capitalize(m[3].replace(/\.$/, ""))}`
     );
   }
   if (/ACE — .+ or inhib NOW/i.test(body)) {
     return finishSentence(
       bro
-        ? `That's an ace — take the objective or the inhib right now. No fountain chase`
-        : `You have an ace. Take the objective or the inhib now, and do not chase into their fountain`
+        ? `That's an ace — objective or inhib are both open`
+        : `You have an ace. The objective or an inhib are both options`
     );
   }
 
@@ -505,8 +505,8 @@ export function toNaturalTalk(
   if (m) {
     return finishSentence(
       bro
-        ? `${m[1]} is alive with ult unlocked — ${m[2].replace(/\.$/, "").toLowerCase()}. No free walk-up`
-        : `${m[1]} is alive with ultimate unlocked. ${capitalize(m[2].replace(/\.$/, ""))}, and don't walk up for free`
+        ? `${m[1]} is alive with ult unlocked — ${m[2].replace(/\.$/, "").toLowerCase()}`
+        : `${m[1]} is alive with ultimate unlocked. ${capitalize(m[2].replace(/\.$/, ""))}`
     );
   }
 
@@ -546,8 +546,8 @@ export function toNaturalTalk(
     body.split(/\s+/).length < 10
   ) {
     body = bro
-      ? `Right now ${body.charAt(0).toLowerCase()}${body.slice(1)}`
-      : `Right now, ${body.charAt(0).toLowerCase()}${body.slice(1)}`;
+      ? `One option: ${body.charAt(0).toLowerCase()}${body.slice(1)}`
+      : `One option: ${body.charAt(0).toLowerCase()}${body.slice(1)}`;
   }
   // Fix single-name "are down" grammar leftovers (never touch "X and Y are down")
   if (!/\band\b/i.test(body)) {

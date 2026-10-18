@@ -306,7 +306,7 @@ export function assessMistakeRisks(a: MatchAnalytics): MistakeRisk[] {
     );
   }
   if (hp != null && hp < 32 && gold >= 600 && !a.noRecall) {
-    add("greed_gold", 70, "Low HP with gold still on the map", "Base now — don't donate");
+    add("greed_gold", 70, "Low HP with gold still on the map", "Low HP with gold unspent — base is an option");
   } else if (gold >= 1400 && !a.noRecall && a.enemy.dead < 2) {
     add("unsynced_reset", 55, "Sitting on spike gold", "Crash one wave then base");
   }
