@@ -7,14 +7,17 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev:log-pairs": "tsx watch src/index.ts --log-pairs",
+    "smoke:coach": "tsx src/coachSmoke.ts"
   },
   "dependencies": {
     "@riftcoach/shared": "*",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "screenshot-desktop": "^1.15.4",
-    "undici": "^8.9.0"
+    "undici": "^8.9.0",
+    "@riftcoach/prompts": "*"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

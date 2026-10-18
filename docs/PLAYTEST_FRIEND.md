@@ -57,7 +57,7 @@ ngrok http 8787
    - The **zip or repo** (see Option B for files)
    - Word that this is a **private playtest**, not public
 
-> Keep ngrok running the whole time they playtest. When you close it, their coach loses AI.
+> Keep ngrok running the whole time they playtest. When you close it, they lose sign-in/history (AI still runs on their PC).
 
 ### On THEIR PC
 
@@ -116,7 +116,7 @@ curl -X POST http://127.0.0.1:8787/v1/auth/dev-grant-founders -H "Content-Type: 
 They need your **repo** + a copy of **env without sharing secrets carelessly**.
 
 1. You create a playtest `.env` with:
-   - `XAI_API_KEY` (your key — **they will use your AI credits**)
+   - No AI key needed — they install Ollama and run `ollama pull qwen2.5:3b-instruct` (see docs/LOCAL_AI.md)
    - `AUTH_DEV_RETURN_LINK=1` so magic links appear on screen if no email
 
 2. They:
@@ -170,7 +170,7 @@ Not great for real playtest of *their* setup.
 ## After playtest
 
 - Stop ngrok  
-- Consider rotating `XAI_API_KEY` if you shared a full `.env`  
+- Consider rotating Stripe/Resend keys if you shared a full `.env`  
 - Collect feedback: spammy? silent? useful? voice ok?
 
 ---

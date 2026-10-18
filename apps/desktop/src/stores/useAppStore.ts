@@ -54,7 +54,6 @@ import {
   type MatchMemory,
 } from "@riftcoach/shared";
 import {
-  captureScreen,
   createSession,
   endSession,
   fetchAgentStatus,
@@ -67,6 +66,9 @@ import {
   streamCallout,
   streamChat,
   MembershipRequiredError,
+  LocalAiUnavailableError,
+  fetchLocalAiStatus,
+  lastLocalAiHint,
 } from "../lib/api";
 import {
   DEFAULT_COST_SAVER,
@@ -155,8 +157,14 @@ interface AppState {
   toast: string | null;
   error: string | null;
   wasInGame: boolean;
-  /** Paid membership (Founders/Pro) — required for cloud AI coach */
+  /** Paid membership (Founders/Pro) — gates AI coach features (AI itself runs locally) */
   membershipActive: boolean;
+  /** Local AI (Ollama on this PC) ready with a coach model */
+  localAiReady: boolean;
+  localAiModel: string | null;
+  /** Setup hint when Ollama/model is missing (built-in lines are used meanwhile) */
+  localAiHint: string | null;
+  refreshLocalAi: (force?: boolean) => Promise<void>;
   membershipEmail: string | null;
   setMembership: (opts: { active: boolean; email?: string | null }) => void;
   init: () => Promise<void>;
@@ -265,6 +273,9 @@ let lastMicStartAt = 0;
 /** Per-match counters for cost control */
 let spokenThisGame = 0;
 let aiCalloutsThisGame = 0;
+/** Last local AI callout start (rate gap protects GPU during fights) */
+let lastAiCalloutAt = 0;
+let lastLocalAiCheck = 0;
 /** Human-like watch state (deltas, not timers) */
 let coachWatch: CoachWatchState = emptyWatchState();
 /** Sticky match memory — habits, narrative, predictions */
@@ -532,7 +543,7 @@ function getCoachPersonality(): CoachPersonality {
 const MIN_SPEAK_GAP_MS = 6_500;
 /**
  * Same theme / near-duplicate line: stay quiet for 5 minutes (also skips cloud AI).
- * Stops the “base base base” loop and burns less xAI spend.
+ * Stops the “base base base” loop and keeps local GPU load down.
  */
 const THEME_COOL_MS = 5 * 60 * 1000;
 /** themeKey → cool-until epoch ms */
@@ -764,7 +775,7 @@ function speakIfEnabled(
     console.info("[voice] skipped — too soon after last tip");
     return false;
   }
-  // 5-min cool on same theme / near-duplicate (skips voice + saves xAI if we never call)
+  // 5-min cool on same theme / near-duplicate (skips voice + skips the local AI call)
   if (isRepeatTip(text)) {
     markTipSpoken(text);
     console.info("[voice] skipped — theme cool 5m / repeat", kind, calloutKind);
@@ -844,8 +855,9 @@ function loadVoicePrefs(): VoicePrefs {
       volume: clampVoiceVolume(Number(parsed.volume ?? DEFAULT_VOICE_PREFS.volume)),
       voiceURI: String(parsed.voiceURI ?? ""),
       style: (parsed.style as VoiceStyle) || "competitive",
-      engine: (parsed.engine as TtsEngine) || DEFAULT_VOICE_PREFS.engine,
-      cloudVoice: String(parsed.cloudVoice ?? DEFAULT_VOICE_PREFS.cloudVoice),
+      // Old removed cloud-engine prefs migrate to the free browser voice
+      engine: parsed.engine === "elevenlabs" ? "elevenlabs" : "browser",
+      cloudVoice: parsed.engine === "elevenlabs" ? String(parsed.cloudVoice ?? "") : "",
     };
   } catch {
     return { ...DEFAULT_VOICE_PREFS };
@@ -931,11 +943,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       ...get().voicePrefs,
       engine,
       cloudVoice:
-        engine === "xai"
-          ? get().voicePrefs.cloudVoice || "leo"
-          : engine === "elevenlabs"
-            ? get().voicePrefs.cloudVoice
-            : get().voicePrefs.cloudVoice,
+        get().voicePrefs.cloudVoice,
     };
     persistVoicePrefs(voicePrefs);
     set({ voicePrefs });
@@ -993,8 +1001,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   visionOnAsk: false,
   setVisionOnAsk: (visionOnAsk) => {
-    localStorage.setItem("rc_vision", visionOnAsk ? "1" : "0");
-    set({ visionOnAsk });
+    // Vision unavailable with local AI — always stays off.
+    void visionOnAsk;
+    localStorage.setItem("rc_vision", "0");
+    set({ visionOnAsk: false });
   },
   listening: false,
   history: [],
@@ -1004,6 +1014,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   wasInGame: false,
   membershipActive: false,
   membershipEmail: null,
+  localAiReady: false,
+  localAiModel: null,
+  localAiHint: null,
+  refreshLocalAi: async (force = false) => {
+    lastLocalAiCheck = Date.now();
+    const st = await fetchLocalAiStatus(force);
+    if (!st) {
+      set({ localAiReady: false, localAiModel: null, localAiHint: "Agent offline — local AI unavailable." });
+      return;
+    }
+    set({ localAiReady: Boolean(st.model), localAiModel: st.model, localAiHint: st.hint });
+  },
   setMembership: ({ active, email }) => {
     set({
       membershipActive: Boolean(active),
@@ -1099,6 +1121,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   init: async () => {
+    void get().refreshLocalAi(true);
     // Surface TTS failures in UI and free the speak gate so tips aren't stuck
     onVoiceStatus(({ error }) => {
       if (error) {
@@ -1112,7 +1135,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     const callouts = localStorage.getItem("rc_callouts");
-    const vision = localStorage.getItem("rc_vision");
     const layout = localStorage.getItem("rc_layout") as LayoutMode | null;
     const voiceOver = localStorage.getItem("rc_voiceover");
     const always = localStorage.getItem("rc_always_listen");
@@ -1122,7 +1144,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     set({
       calloutsEnabled: callouts !== "0",
-      visionOnAsk: vision === "1",
+      visionOnAsk: false,
       layout: layout === "compact" ? "compact" : "full",
       voiceOverEnabled: voiceOver !== "0", // default ON
       alwaysListen: always === "1",
@@ -1182,6 +1204,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   pollAgent: async () => {
     try {
+      if (Date.now() - lastLocalAiCheck > 30_000) void get().refreshLocalAi();
       const status = await fetchAgentStatus();
       const wasInGame = get().wasInGame;
       // Only "real" live games count — mock must not look like a match
@@ -1596,7 +1619,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               const assistantId = `c-${signal.id}-${Date.now()}`;
               const started = Date.now();
 
-              // Fewer AI kinds + lower cap = less xAI spend; local line covers tempo spam
+              // Local AI only on high-signal kinds + rate gap so the GPU stays free mid-fight
               const AI_KINDS = new Set([
                 "death",
                 "kill",
@@ -1607,7 +1630,10 @@ export const useAppStore = create<AppState>((set, get) => ({
               ]);
               const useAi =
                 (AI_KINDS.has(signal.kind) || signal.severity === "urgent") &&
-                Boolean(get().sessionId && shouldRunAiCallout(cs, aiCalloutsThisGame));
+                Boolean(
+                  get().localAiReady &&
+                    shouldRunAiCallout(cs, aiCalloutsThisGame, lastAiCalloutAt)
+                );
 
               set((s) => ({
                 messages: [
@@ -1666,9 +1692,11 @@ export const useAppStore = create<AppState>((set, get) => ({
                 coachWatch.lastSignatures = [sig, ...coachWatch.lastSignatures].slice(0, 12);
               };
 
-              // ONE voice only: either local OR AI (never both). AI preferred when paid.
+              // ONE voice only: either seed line OR local AI (never both).
+              // Membership gate kept as a product decision (AI itself is local + free now)
               if (useAi && get().membershipActive) {
                 aiCalloutsThisGame += 1;
+                lastAiCalloutAt = Date.now();
                 paint("…", "local");
                 const enriched: DetectedSignal = {
                   ...signal,
@@ -1690,7 +1718,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                   let line = fallback;
                   let source: "ai" | "local" = "local";
                   try {
-                    const sid = await ensureCoachSession();
+                    const sid = get().sessionId || "local";
                     const aiP = streamCallout(sid, enriched, ctx, () => undefined, {
                       personality: getCoachPersonality(),
                       recentCallouts: lastSpokenTips.slice(0, 10),
@@ -1723,10 +1751,11 @@ export const useAppStore = create<AppState>((set, get) => ({
                       }
                     }
                   } catch (e) {
-                    if (e instanceof MembershipRequiredError) {
+                    if (e instanceof LocalAiUnavailableError && !e.busy) {
                       set({
-                        membershipActive: false,
-                        toast: "AI coach offline — Founders subscription required",
+                        localAiReady: false,
+                        localAiHint: e.message,
+                        toast: "Local AI offline — using built-in lines (see Setup)",
                       });
                     }
                   }
@@ -1791,34 +1820,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
 
-    let sessionId: string;
-    try {
-      sessionId = await ensureCoachSession();
-    } catch (e) {
-      set({
-        error:
-          e instanceof Error
-            ? e.message
-            : "No session — is the API running on :8787?",
-      });
-      return;
-    }
+    // AI runs locally on this PC. Chat history is keyed per session on the agent.
+    const sessionId = get().sessionId || "local";
 
-    let frameBase64: string | undefined = frame?.base64;
-    let frameMime: string | undefined = frame?.mime;
-    if (!frameBase64 && (withVision || get().visionOnAsk)) {
-      set({ toast: "Capturing screen…" });
-      const shot = await captureScreen();
-      if (shot) {
-        frameBase64 = shot.base64;
-        frameMime = shot.mime;
-      } else {
-        set({
-          toast: null,
-          error: "Screen capture failed (AV/blocked). Use 📎 to attach a screenshot instead.",
-        });
-      }
-      set({ toast: null });
+    // Vision is unavailable in local mode: screenshots are never captured or sent.
+    void withVision;
+    const frameBase64: string | undefined = undefined;
+    const frameMime: string | undefined = undefined;
+    if (frame) {
+      set({ toast: "Screenshots aren't supported with local AI — sending text only." });
     }
 
     const userMsg: ChatMessage = {
@@ -1879,6 +1889,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     try {
       let full = await runChat(sessionId);
+      if (lastLocalAiHint) set({ localAiHint: lastLocalAiHint, localAiReady: false });
       if (shouldVoiceReply) speakIfEnabled(full, "reply");
     } catch (e) {
       if (e instanceof MembershipRequiredError) {
@@ -1997,17 +2008,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       let raw = "";
       let summary: SessionSummary | null = null;
       if (get().membershipActive) {
+        // Summary generated locally (Ollama or built-in lines); server only stores it.
         try {
           const ended = await endSession(sessionId, safeCtx, result);
           summary = ended.summary;
           raw = summary.raw || summary.bullets.join(". ");
         } catch (e) {
-          if (e instanceof MembershipRequiredError) {
-            set({ membershipActive: false });
-            raw = "";
-          } else {
-            throw e;
-          }
+          console.warn("[summary] end session failed", e);
+          raw = "";
         }
       }
       const lo =

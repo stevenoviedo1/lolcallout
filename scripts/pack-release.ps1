@@ -99,12 +99,12 @@ $extra = @(
 )
 if (Test-Path $envSrc) {
   $lines = Get-Content $envSrc | Where-Object {
-    $_ -match '^(XAI_|AUTH_|API_|AGENT_|TTS_|RESEND_|STRIPE_)' -or $_ -match '^\s*#' -or $_ -match '^[A-Z0-9_]+='
+    $_ -match '^(OLLAMA_|LOLCOACH_|AUTH_|API_|AGENT_|RESEND_|STRIPE_)' -or $_ -match '^\s*#' -or $_ -match '^[A-Z0-9_]+='
   }
   ($lines + $extra) | Set-Content $playtestEnv -Encoding utf8
   Write-Host "Wrote playtest.env from root .env (playtest keys baked in)" -ForegroundColor Yellow
 } else {
-  Write-Host "WARNING: no root .env - build may lack XAI_API_KEY" -ForegroundColor Red
+  Write-Host "WARNING: no root .env - using defaults (AI runs locally via Ollama)" -ForegroundColor Red
   $extra | Set-Content $playtestEnv -Encoding utf8
 }
 

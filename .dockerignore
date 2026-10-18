@@ -15,6 +15,5 @@ docs
 fixtures
 data
 scripts
-.grok
 **/*.log
 **/tsconfig.tsbuildinfo

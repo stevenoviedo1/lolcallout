@@ -10,7 +10,6 @@ import {
   STYLE_PRESETS,
   VOICE_VOLUME_MAX,
   VOICE_VOLUME_MIN,
-  XAI_VOICES,
   unlockAudio,
   volumePercentLabel,
   type TtsEngine,
@@ -19,6 +18,7 @@ import {
 import { hpPct, modeFullLabel, modeLabel } from "./lib/modeLabel";
 import { changePassword, isStrongPassword } from "./lib/authApi";
 import { resetCoachVoice, setLayoutPersisted, useAppStore } from "./stores/useAppStore";
+import { LOCAL_VISION_AVAILABLE } from "./lib/api";
 
 export default function App({
   membershipActive = false,
@@ -62,8 +62,10 @@ export default function App({
     voiceError,
     alwaysListen,
     setAlwaysListen,
-    visionOnAsk,
     setVisionOnAsk,
+    localAiReady,
+    localAiModel,
+    localAiHint,
     listening,
     history,
     activeSummary,
@@ -246,6 +248,13 @@ export default function App({
           >
             <span className={`dot ${membershipActive ? "live" : "idle"}`} />
             <span>{membershipActive ? "AI ready" : "AI offline"}</span>
+          </div>
+          <div
+            className={`status-pill ${localAiReady ? "is-coach-on" : "is-coach-off"}`}
+            title={localAiReady ? `Local AI on this PC: ${localAiModel}` : localAiHint || "Local AI offline"}
+          >
+            <span className={`dot ${localAiReady ? "live" : "idle"}`} />
+            <span>{localAiReady ? "Local AI" : "Built-in lines"}</span>
           </div>
         </div>
 
@@ -1148,9 +1157,8 @@ export default function App({
               <div className="style-row">
                 {(
                   [
-                    ["xai", "Natural (xAI)"],
-                    ["elevenlabs", "My voice"],
-                    ["browser", "Browser"],
+                    ["browser", "Browser (free)"],
+                    ["elevenlabs", "ElevenLabs (optional)"],
                   ] as [TtsEngine, string][]
                 ).map(([id, label]) => (
                   <button
@@ -1163,22 +1171,6 @@ export default function App({
                   </button>
                 ))}
               </div>
-              {voicePrefs.engine === "xai" && (
-                <label className="slider-label">
-                  xAI voice
-                  <select
-                    className="voice-select"
-                    value={voicePrefs.cloudVoice || "leo"}
-                    onChange={(e) => setCloudVoice(e.target.value)}
-                  >
-                    {XAI_VOICES.map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
               {voicePrefs.engine === "elevenlabs" && (
                 <label className="slider-label">
                   ElevenLabs Voice ID
@@ -1260,13 +1252,14 @@ export default function App({
               {voiceError && <p className="err">{voiceError}</p>}
             </div>
 
-            <label className="toggle">
+            <label className="toggle" title="Local AI is text-only — screenshots are never sent">
               <input
                 type="checkbox"
-                checked={visionOnAsk}
-                onChange={(e) => setVisionOnAsk(e.target.checked)}
+                checked={false}
+                disabled
+                onChange={() => setVisionOnAsk(false)}
               />
-              Attach screen on every ask (heavy)
+              Attach screen on every ask — unavailable with local AI
             </label>
             {error && <p className="err">{error}</p>}
           </div>
@@ -1629,8 +1622,10 @@ export default function App({
             <button
               type="button"
               className="chip"
-              disabled={!membershipActive || streaming}
+              disabled={!LOCAL_VISION_AVAILABLE || !membershipActive || streaming}
+              title="Screenshots are unavailable with local AI (text-only model)"
               onClick={() => {
+                if (!LOCAL_VISION_AVAILABLE) return;
                 if (!membershipActive) {
                   onUpgrade?.();
                   return;
@@ -1638,7 +1633,7 @@ export default function App({
                 void analyzeScreen();
               }}
             >
-              Analyze screen
+              Analyze screen (unavailable locally)
             </button>
             <button
               type="button"
@@ -1697,7 +1692,7 @@ export default function App({
             disabled={streaming || !membershipActive}
             aria-label="Message coach"
           />
-          {!compact && (
+          {!compact && LOCAL_VISION_AVAILABLE && (
             <label
               className={`chip file-chip ${!membershipActive ? "chip-disabled" : ""}`}
               title={membershipActive ? "Attach screenshot" : "AI coach offline"}

@@ -3,7 +3,6 @@ import {
   STYLE_PRESETS,
   VOICE_VOLUME_MAX,
   VOICE_VOLUME_MIN,
-  XAI_VOICES,
   unlockAudio,
   volumePercentLabel,
   welcomeVoice,
@@ -19,9 +18,11 @@ import {
   type CoachIntensity,
 } from "../lib/setupPrefs";
 import { setLayoutPersisted, useAppStore } from "../stores/useAppStore";
+import { LocalAiSetup } from "./LocalAiSetup";
 
 const STEPS = [
   { id: "welcome", title: "Welcome", blurb: "Your live duo coach" },
+  { id: "localai", title: "Local AI", blurb: "Free AI on your own PC (Ollama)" },
   { id: "callouts", title: "Callouts", blurb: "Personality, density, what you hear" },
   { id: "voice", title: "Voice", blurb: "How the coach sounds" },
   { id: "play", title: "Play setup", blurb: "Layout & HUD" },
@@ -70,7 +71,6 @@ export function SetupWizard({
     voicePrefs,
     setVoiceStyle,
     setTtsEngine,
-    setCloudVoice,
     setVoiceVolume,
     setVoiceRate,
     testVoiceOver,
@@ -163,12 +163,7 @@ export function SetupWizard({
   };
 
   const summary = useMemo(() => {
-    const eng =
-      voicePrefs.engine === "xai"
-        ? `Natural · ${voicePrefs.cloudVoice || "leo"}`
-        : voicePrefs.engine === "elevenlabs"
-          ? "My voice clone"
-          : "Browser voice";
+    const eng = voicePrefs.engine === "elevenlabs" ? "ElevenLabs (optional)" : "Browser voice";
     return [
       `Focus: ${FOCUS_OPTIONS.find((f) => f.id === focus)?.label || focus}`,
       `Callouts: ${calloutsEnabled ? "on" : "off"} · ${intensity}${
@@ -333,6 +328,8 @@ export function SetupWizard({
             </div>
           )}
 
+          {current.id === "localai" && <LocalAiSetup />}
+
           {current.id === "voice" && (
             <div className="setup-panel">
               <label className="setup-toggle">
@@ -351,9 +348,8 @@ export function SetupWizard({
               <div className="setup-chips row">
                 {(
                   [
-                    ["xai", "Natural (xAI)"],
-                    ["browser", "Browser"],
-                    ["elevenlabs", "My clone"],
+                    ["browser", "Browser (free)"],
+                    ["elevenlabs", "ElevenLabs (optional)"],
                   ] as [TtsEngine, string][]
                 ).map(([id, label]) => (
                   <button
@@ -366,26 +362,6 @@ export function SetupWizard({
                   </button>
                 ))}
               </div>
-
-              {voicePrefs.engine === "xai" && (
-                <>
-                  <p className="setup-section-label">xAI voice</p>
-                  <div className="setup-chips row">
-                    {XAI_VOICES.map((v) => (
-                      <button
-                        key={v.id}
-                        type="button"
-                        className={`chip ${
-                          (voicePrefs.cloudVoice || "leo") === v.id ? "chip-on" : ""
-                        }`}
-                        onClick={() => setCloudVoice(v.id)}
-                      >
-                        {v.label}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
 
               <p className="setup-section-label">Style</p>
               <div className="setup-chips row">

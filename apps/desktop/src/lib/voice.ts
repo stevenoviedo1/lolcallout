@@ -1,11 +1,11 @@
-/** Voice: browser STT + browser/cloud TTS (xAI natural or your ElevenLabs clone) */
+/** Voice: browser STT + free browser TTS (speechSynthesis). Optional ElevenLabs via the server if the owner configures it. */
 
 import { toSecondPersonCoach, toSpeakable } from "@riftcoach/shared";
 import { API_URL } from "./config";
 import { authHeaders } from "./authApi";
 
 export type VoiceStyle = "competitive" | "calm" | "caster";
-export type TtsEngine = "browser" | "xai" | "elevenlabs";
+export type TtsEngine = "browser" | "elevenlabs";
 
 export interface VoicePrefs {
   rate: number;
@@ -13,13 +13,13 @@ export interface VoicePrefs {
   volume: number;
   voiceURI: string;
   style: VoiceStyle;
-  /** browser = robotic OS voices; xai = natural Grok TTS; elevenlabs = YOUR clone */
+  /** browser = free OS voices (default); elevenlabs = optional paid cloud voice */
   engine: TtsEngine;
-  /** xAI voice name or ElevenLabs voice_id */
+  /** ElevenLabs voice_id */
   cloudVoice: string;
 }
 
-/** volume: 0.1–2.5 (100% = 1). Values above 1 boost Natural/xAI via Web Audio. */
+/** volume: 0.1–2.5 (100% = 1). Values above 1 boost cloud audio via Web Audio. */
 export const VOICE_VOLUME_MIN = 0.1;
 export const VOICE_VOLUME_MAX = 2.5;
 
@@ -31,8 +31,8 @@ export const DEFAULT_VOICE_PREFS: VoicePrefs = {
   volume: 1.0,
   voiceURI: "",
   style: "competitive",
-  engine: "xai", // natural by default when API key works
-  cloudVoice: "leo", // coach-like default among xAI voices
+  engine: "browser", // free, on-device
+  cloudVoice: "",
 };
 
 export function clampVoiceVolume(v: number): number {
@@ -69,13 +69,6 @@ export const STYLE_PRESETS: Record<
   },
 };
 
-export const XAI_VOICES = [
-  { id: "leo", label: "Leo (recommended coach)" },
-  { id: "rex", label: "Rex" },
-  { id: "sal", label: "Sal" },
-  { id: "eve", label: "Eve" },
-  { id: "ara", label: "Ara" },
-];
 
 export function getSpeechRecognitionCtor(): (new () => SpeechRecognition) | null {
   const w = window as Window & {
@@ -338,7 +331,7 @@ async function playCloudTts(
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({
         text,
-        provider: prefs.engine === "browser" ? "xai" : prefs.engine,
+        provider: "elevenlabs",
         voice: prefs.cloudVoice || undefined,
       }),
       signal: controller.signal,
@@ -615,7 +608,7 @@ async function playBrowserTts(
   generation: number
 ): Promise<void> {
   if (!window.speechSynthesis) {
-    throw new Error("No speechSynthesis in this browser — use Chrome/Edge or Natural (xAI)");
+    throw new Error("No speechSynthesis in this browser — use Chrome/Edge");
   }
   if (generation !== speakGeneration) return;
 
@@ -658,7 +651,7 @@ async function playBrowserTts(
     // If synth dies silently, don't hang the queue forever
     const watchdog = window.setTimeout(() => {
       window.speechSynthesis.cancel();
-      finish(new Error("Browser voice timed out — try Natural (xAI) engine"));
+      finish(new Error("Browser voice timed out — check Windows voices"));
     }, 15_000);
 
     u.onend = () => finish();
@@ -697,7 +690,7 @@ async function pumpQueue() {
     if (generation !== speakGeneration) return;
 
     // Exactly ONE engine per utterance — never cloud then browser at once
-    if (prefs.engine === "xai" || prefs.engine === "elevenlabs") {
+    if (prefs.engine === "elevenlabs") {
       try {
         await playCloudTts(text, prefs, generation);
         if (generation === speakGeneration) setVoiceError(null);
@@ -727,18 +720,8 @@ async function pumpQueue() {
       } catch (e) {
         if (generation !== speakGeneration) return;
         const msg = e instanceof Error ? e.message : "Browser TTS failed";
-        console.warn("[voice] browser TTS failed, trying xAI", e);
-        try {
-          window.speechSynthesis?.cancel();
-          await playCloudTts(text, { ...prefs, engine: "xai" }, generation);
-          if (generation === speakGeneration) {
-            setVoiceError(`Browser voice failed — used Natural (xAI)`);
-          }
-        } catch (e2) {
-          if (generation !== speakGeneration) return;
-          const msg2 = e2 instanceof Error ? e2.message : "xAI TTS failed";
-          setVoiceError(`Voice failed: ${msg}. ${msg2}`);
-        }
+        console.warn("[voice] browser TTS failed", e);
+        setVoiceError(`Voice failed: ${msg}`);
       }
     }
   } finally {
@@ -863,7 +846,7 @@ export function stopSpeaking() {
   notifyTtsActive(false);
 }
 
-/** Live-adjust volume while something is playing (Natural/xAI path) */
+/** Live-adjust volume while something is playing (cloud audio path) */
 export function applyLiveVolume(volume: number) {
   const v = clampVoiceVolume(volume);
   currentPrefs = { ...currentPrefs, volume: v };
@@ -899,16 +882,14 @@ export function welcomeVoice(prefs?: Partial<VoicePrefs>) {
 }
 
 export async function fetchTtsStatus(): Promise<{
-  xai: boolean;
   elevenlabs: boolean;
-  xaiVoices: string[];
 }> {
   try {
     const res = await fetch(`${API_URL}/v1/tts/status`);
     if (!res.ok) throw new Error("status fail");
     return res.json();
   } catch {
-    return { xai: false, elevenlabs: false, xaiVoices: [] };
+    return { elevenlabs: false };
   }
 }
 

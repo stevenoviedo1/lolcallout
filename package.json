@@ -18,8 +18,11 @@
     "build": "npm run build -w @riftcoach/shared && npm run build -w @riftcoach/prompts && npm run build -w @riftcoach/api && npm run build -w @riftcoach/agent && npm run build -w @riftcoach/desktop",
     "build:api": "npm run build -w @riftcoach/shared && npm run build -w @riftcoach/prompts && npm run build -w @riftcoach/api",
     "start:api": "npm run start -w @riftcoach/api",
-    "smoke:coach": "npm run smoke:coach -w @riftcoach/shared",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "smoke:coach": "npm run smoke:coach -w @riftcoach/shared && npm run build -w @riftcoach/prompts && npm run smoke:coach -w @riftcoach/agent",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:agent:log-pairs": "npm run dev:log-pairs -w @riftcoach/agent",
+    "gen:modelfile": "npm run build -w @riftcoach/prompts && node scripts/gen-modelfile.mjs",
+    "pairs": "node scripts/log-pairs.mjs"
   },
   "devDependencies": {
     "concurrently": "^10.0.4",

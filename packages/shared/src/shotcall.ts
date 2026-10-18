@@ -1,5 +1,5 @@
 /**
- * Shotcall synthesizer — what Grok would do:
+ * Shotcall synthesizer — what a top coach would do:
  * One maximum-IQ line. No corporate coaching. No filler.
  * Merge battle + convert + HP + threat into a single Discord-quality call.
  */

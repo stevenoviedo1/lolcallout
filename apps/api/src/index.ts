@@ -4,8 +4,6 @@ import dotenv from "dotenv";
 import express from "express";
 import cors from "cors";
 import type {
-  CalloutRequest,
-  ChatRequest,
   CreateSessionRequest,
   CreateSessionResponse,
   PushContextRequest,
@@ -26,7 +24,7 @@ import {
   setSummary,
 } from "./store.js";
 import { gradeMatch, DEFAULT_GOALS, type SessionGoal } from "@riftcoach/shared";
-import { coachAiStatus, parseSummaryBullets, streamCoachReply } from "./coach.js";
+import { AI_GONE_MESSAGE, coachAiStatus, parseSummaryBullets } from "./coach.js";
 import { synthesizeSpeech, ttsStatus, type TtsProvider } from "./tts.js";
 import {
   applyCheckoutEntitlement,
@@ -156,7 +154,6 @@ app.get("/health", (_req, res) => {
     ok: true,
     service: "lolcallout-api",
     aiConfigured: ai.configured,
-    model: ai.reasonModel,
     ai,
     tts: ttsStatus(),
     stripe: stripeEnabled(),
@@ -328,7 +325,7 @@ app.get("/v1/tts/status", (_req, res) => {
   res.json(ttsStatus());
 });
 
-/** Cloud TTS — paid members only (natural xAI / ElevenLabs) */
+/** Optional cloud TTS — paid members only (ElevenLabs, owner-configured) */
 app.post("/v1/tts", requireAuth, requireAccess, async (req, res) => {
   try {
     const text = String(req.body?.text || "");
@@ -409,125 +406,24 @@ app.get("/v1/sessions/:id/messages", (req, res) => {
   res.json({ messages: listMessages(req.params.id) });
 });
 
-async function streamChatHandler(
-  sessionId: string,
-  body: ChatRequest,
-  res: express.Response,
-  opts?: { role?: "assistant" | "callout"; skipUserMessage?: boolean }
-) {
-  const rec = getSession(sessionId);
-  if (!rec) {
-    res.status(404).json({ error: "session not found" });
-    return;
-  }
+/** AI routes are gone — generation is local now. 410 so old clients get a clear message. */
+const aiGone = (_req: express.Request, res: express.Response) => {
+  res.status(410).json({ code: "AI_MOVED_LOCAL", error: AI_GONE_MESSAGE });
+};
+app.post("/v1/sessions/:id/chat", aiGone);
+app.post("/v1/sessions/:id/callout", aiGone);
 
-  const message = (body.message || "").trim();
-  if (!message) {
-    res.status(400).json({ error: "message required" });
-    return;
-  }
-
-  if (body.context) pushContext(sessionId, body.context);
-  const context = body.context ?? rec.lastContext;
-
-  if (!opts?.skipUserMessage) {
-    addMessage(sessionId, "user", message, { intent: body.intent });
-  }
-
-  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.flushHeaders?.();
-
-  const history = rec.messages
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .slice(0, opts?.skipUserMessage ? undefined : -1)
-    .map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
-    }));
-
-  let full = "";
-  try {
-    for await (const token of streamCoachReply(body, history, context)) {
-      full += token;
-      res.write(`data: ${JSON.stringify({ type: "token", text: token })}\n\n`);
-    }
-    const role = opts?.role || "assistant";
-    addMessage(sessionId, role, full, { intent: body.intent });
-    res.write(`data: ${JSON.stringify({ type: "done", text: full })}\n\n`);
-    res.end();
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "coach failed";
-    console.error("[api] chat error", msg);
-    const fallback = `VERDICT: N/A\nACTION: Coach error — ${msg}\nNOTE: Check XAI_API_KEY and network.`;
-    addMessage(sessionId, "assistant", fallback, { error: true });
-    res.write(`data: ${JSON.stringify({ type: "error", text: fallback })}\n\n`);
-    res.end();
-  }
-}
-
-/** SSE streaming chat — paid members only */
-app.post("/v1/sessions/:id/chat", requireAuth, requireAccess, async (req, res) => {
-  await streamChatHandler(req.params.id, (req.body || {}) as ChatRequest, res);
-});
-
-/** Proactive callout from agent signal — paid members only */
-app.post("/v1/sessions/:id/callout", requireAuth, requireAccess, async (req, res) => {
-  const body = (req.body || {}) as CalloutRequest;
-  if (!body.signal) return res.status(400).json({ error: "signal required" });
-
-  // Death uses full death-review intent so the model coaches, not narrates
-  const isDeath = body.signal.kind === "death";
-  const chatBody: ChatRequest = {
-    message: isDeath
-      ? body.signal.coachPrompt
-      : `${body.signal.title}${body.signal.detail ? ` — ${body.signal.detail}` : ""}\n\n${body.signal.coachPrompt}`,
-    intent: isDeath ? "why_die" : "callout",
-    context: body.context,
-    personality: body.personality,
-    recentCallouts: body.recentCallouts,
-    matchMemory: body.matchMemory,
-    deathReport: body.context?.deathReport
-      ? {
-          total: body.context.deathReport.total,
-          early: body.context.deathReport.early,
-          mid: body.context.deathReport.mid,
-          late: body.context.deathReport.late,
-          dominant: body.context.deathReport.dominant,
-          records: [],
-        }
-      : undefined,
-  };
-
-  await streamChatHandler(req.params.id, chatBody, res, {
-    role: "callout",
-    skipUserMessage: true,
-  });
-});
-
-/** End match + generate AI summary — paid members only */
-app.post("/v1/sessions/:id/end", requireAuth, requireAccess, async (req, res) => {
+/** End match + store the summary the desktop generated locally (no AI here) */
+app.post("/v1/sessions/:id/end", requireAuth, async (req, res) => {
   const rec = getSession(req.params.id);
   if (!rec) return res.status(404).json({ error: "session not found" });
 
   const result = (req.body?.result as "win" | "loss" | "unknown" | undefined) || "unknown";
   const context = req.body?.context ?? rec.lastContext;
 
-  const chatBody: ChatRequest = {
-    message: "Generate post-game summary for this match.",
-    intent: "summary",
-    context,
-  };
-
-  let full = "";
-  try {
-    for await (const token of streamCoachReply(chatBody, [], context)) {
-      full += token;
-    }
-  } catch (err) {
-    full = `POST-GAME SUMMARY\n• Review failed: ${err instanceof Error ? err.message : "error"}`;
-  }
+  // Summary text is generated on the player's PC (local AI or built-in lines).
+  const full = String(req.body?.summaryRaw || "").slice(0, 8000) ||
+    "POST-GAME SUMMARY\n• No summary text was provided by the client.";
 
   const parsed = parseSummaryBullets(full);
   const you = context?.you;
@@ -556,5 +452,5 @@ app.get("/v1/sessions/:id/summary", (req, res) => {
 
 app.listen(PORT, HOST, () => {
   console.log(`[api] listening on http://${HOST}:${PORT}`);
-  console.log(`[api] AI key configured: ${Boolean(process.env.XAI_API_KEY)}`);
+  console.log("[api] AI: none on server (runs locally on player PCs)");
 });
